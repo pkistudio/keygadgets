@@ -4,6 +4,7 @@ import pkistudioIconUrl from '@pkistudio/dereditor/pkistudio.ico';
 import {
   CERTIFICATE_KEY_USAGES,
   KeyGadgetsCore,
+  certificateMatchesKey,
   createCsr,
   createSelfSignedCertificate,
   createSubjectDn,
@@ -61,13 +62,25 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
   const status = query<HTMLElement>(mount, '#status');
   const log = query<HTMLElement>(mount, '#operationLog');
   const fileInput = query<HTMLInputElement>(mount, '#fileInput');
+  const certificateInput = query<HTMLInputElement>(mount, '#certificateInput');
   const algorithmSelect = query<HTMLSelectElement>(mount, '#algorithmSelect');
   const subjectForm = query<HTMLFormElement>(mount, '#subjectForm');
   const subjectInput = query<HTMLInputElement>(mount, '#subjectDn');
+  const algorithmMenu = query<HTMLElement>(mount, '#algorithmMenu');
+  const actionsMenu = query<HTMLElement>(mount, '#actionsMenu');
+  const subjectDialog = query<HTMLDialogElement>(mount, '#subjectDialog');
+  const csrDialog = query<HTMLDialogElement>(mount, '#csrDialog');
+  const certificateDialog = query<HTMLDialogElement>(mount, '#certificateDialog');
+  const aboutDialog = query<HTMLDialogElement>(mount, '#aboutDialog');
+  const parentContextMenu = query<HTMLElement>(mount, '#parentContextMenu');
+  const privateKeyContextMenu = query<HTMLElement>(mount, '#privateKeyContextMenu');
+  const publicKeyContextMenu = query<HTMLElement>(mount, '#publicKeyContextMenu');
   const viewer = mountReadOnlyDerEditor(viewerMount);
 
   let materials = [...(options.materials ?? [])];
   let selection: Selection | null = firstSelection(materials[0]);
+  let contextKeyId: string | null = null;
+  let certificateTargetKeyId: string | null = null;
 
   const instance: KeyGadgetsAppInstance = {
     get materials() { return materials; },
@@ -80,20 +93,101 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
   void populateAlgorithms();
   render();
 
-  query<HTMLButtonElement>(mount, '#generateButton').addEventListener('click', () => void run(async () => {
-    if (!algorithmSelect.value) throw new Error('No supported key algorithm is selected.');
-    await generate(algorithmSelect.value);
-  }));
+  query<HTMLButtonElement>(mount, '#generateButton').addEventListener('click', () => {
+    setMenuOpen(algorithmMenu, algorithmMenu.hidden);
+    setMenuOpen(actionsMenu, false);
+  });
+  algorithmMenu.addEventListener('click', (event) => {
+    const button = (event.target as Element | null)?.closest<HTMLButtonElement>('button[data-algorithm]');
+    if (!button?.dataset.algorithm) return;
+    algorithmSelect.value = button.dataset.algorithm;
+    setMenuOpen(algorithmMenu, false);
+    void run(async () => { await generate(button.dataset.algorithm!); });
+  });
   query<HTMLButtonElement>(mount, '#openButton').addEventListener('click', () => fileInput.click());
-  query<HTMLButtonElement>(mount, '#saveButton').addEventListener('click', () => void run(saveSelection));
+  query<HTMLButtonElement>(mount, '#saveButton').addEventListener('click', () => {
+    setMenuOpen(actionsMenu, false);
+    void run(saveSelection);
+  });
   query<HTMLButtonElement>(mount, '#exportP12Button').addEventListener('click', () => void run(exportPkcs12));
-  query<HTMLButtonElement>(mount, '#deleteButton').addEventListener('click', () => void run(deleteSelection));
+  query<HTMLButtonElement>(mount, '#deleteButton').addEventListener('click', () => {
+    setMenuOpen(actionsMenu, false);
+    void run(deleteSelection);
+  });
   query<HTMLButtonElement>(mount, '#createCsrButton').addEventListener('click', () => void run(createSelectedCsr));
   query<HTMLButtonElement>(mount, '#createCertificateButton').addEventListener('click', () => void run(createSelectedCertificate));
+  query<HTMLButtonElement>(mount, '#actionsButton').addEventListener('click', () => {
+    setMenuOpen(actionsMenu, actionsMenu.hidden);
+    setMenuOpen(algorithmMenu, false);
+  });
+  query<HTMLButtonElement>(mount, '#newSubjectButton').addEventListener('click', openSubjectDialog);
+  query<HTMLButtonElement>(mount, '#openCsrDialogButton').addEventListener('click', openCsrDialog);
+  query<HTMLButtonElement>(mount, '#openCertificateDialogButton').addEventListener('click', openCertificateDialog);
+
+  query<HTMLButtonElement>(mount, '#parentNewSubjectButton').addEventListener('click', () => {
+    selectContextKey();
+    closeTreeContextMenus();
+    openSubjectDialog();
+  });
+  query<HTMLButtonElement>(mount, '#parentDeleteButton').addEventListener('click', () => void run(async () => {
+    const keyId = contextKeyRequired();
+    closeTreeContextMenus();
+    await deleteMaterial(keyId);
+  }));
+  query<HTMLButtonElement>(mount, '#privateNewCsrButton').addEventListener('click', () => {
+    selectContextNode('private-key');
+    closeTreeContextMenus();
+    openCsrDialog();
+  });
+  query<HTMLButtonElement>(mount, '#privateNewCertificateButton').addEventListener('click', () => {
+    selectContextNode('private-key');
+    closeTreeContextMenus();
+    openCertificateDialog();
+  });
+  query<HTMLButtonElement>(mount, '#privateDeleteButton').addEventListener('click', () => void run(async () => {
+    selectContextNode('private-key');
+    closeTreeContextMenus();
+    await deleteSelection();
+  }));
+  query<HTMLButtonElement>(mount, '#publicDeleteButton').addEventListener('click', () => void run(async () => {
+    selectContextNode('public-key');
+    closeTreeContextMenus();
+    await deleteSelection();
+  }));
+  query<HTMLButtonElement>(mount, '#loadCertificateFileButton').addEventListener('click', () => {
+    certificateTargetKeyId = contextKeyRequired();
+    closeTreeContextMenus();
+    certificateInput.click();
+  });
+  query<HTMLButtonElement>(mount, '#loadCertificatePemButton').addEventListener('click', () => void run(async () => {
+    const keyId = contextKeyRequired();
+    closeTreeContextMenus();
+    const text = await readClipboardText();
+    await loadCertificateIntoMaterial(keyId, pemToDer(text, 'CERTIFICATE'), 'clipboard PEM');
+  }));
+  query<HTMLButtonElement>(mount, '#loadCertificateHexButton').addEventListener('click', () => void run(async () => {
+    const keyId = contextKeyRequired();
+    closeTreeContextMenus();
+    const text = await readClipboardText();
+    await loadCertificateIntoMaterial(keyId, hexToBytes(text), 'clipboard HEX');
+  }));
+  query<HTMLButtonElement>(mount, '#aboutButton').addEventListener('click', () => aboutDialog.showModal());
+  query<HTMLButtonElement>(mount, '#closeAboutButton').addEventListener('click', () => aboutDialog.close());
+  query<HTMLButtonElement>(mount, '#clearLogButton').addEventListener('click', () => {
+    log.replaceChildren();
+    logOperation('clear', 'API log cleared.');
+  });
   query<HTMLButtonElement>(mount, '#themeButton').addEventListener('click', () => {
     const theme = mount.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
     mount.setAttribute('data-theme', theme);
   });
+
+  for (const button of mount.querySelectorAll<HTMLButtonElement>('[data-close-dialog]')) {
+    button.addEventListener('click', () => button.closest<HTMLDialogElement>('dialog')?.close());
+  }
+  document.addEventListener('click', closePopupMenus);
+  setupPaneResizer();
+  setupLogResizer();
 
   fileInput.addEventListener('change', () => void run(async () => {
     const file = fileInput.files?.[0];
@@ -102,7 +196,29 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     await loadBytes(new Uint8Array(await file.arrayBuffer()), file.name);
   }));
 
+  certificateInput.addEventListener('change', () => void run(async () => {
+    const file = certificateInput.files?.[0];
+    const keyId = certificateTargetKeyId;
+    certificateInput.value = '';
+    certificateTargetKeyId = null;
+    if (!file || !keyId) return;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const text = new TextDecoder().decode(bytes);
+    await loadCertificateIntoMaterial(
+      keyId,
+      /-----BEGIN CERTIFICATE-----/i.test(text) ? pemToDer(text, 'CERTIFICATE') : bytes,
+      file.name
+    );
+  }));
+
   tree.addEventListener('click', (event) => {
+    const menuButton = (event.target as Element | null)?.closest<HTMLButtonElement>('button[data-tree-menu]');
+    if (menuButton?.dataset.keyId && menuButton.dataset.treeMenu) {
+      event.preventDefault();
+      event.stopPropagation();
+      openTreeContextMenu(menuButton.dataset.treeMenu, menuButton.dataset.keyId, menuButton);
+      return;
+    }
     const button = (event.target as Element | null)?.closest<HTMLButtonElement>('button[data-key-id][data-kind]');
     if (!button?.dataset.keyId || !button.dataset.kind) return;
     selection = {
@@ -125,6 +241,14 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
       option.value = algorithm.id;
       option.textContent = algorithm.canonicalLabel;
       return option;
+    }));
+    algorithmMenu.replaceChildren(...algorithms.map((algorithm) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.algorithm = algorithm.id;
+      button.textContent = algorithm.canonicalLabel;
+      button.setAttribute('role', 'menuitem');
+      return button;
     }));
     if (algorithms.length === 0) {
       algorithmSelect.append(new Option('No supported algorithms', ''));
@@ -214,6 +338,7 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
       selection = { keyId: material.id, kind: 'subject-dn', itemId: subject.id };
       logOperation('createSubjectDn', 'SubjectDN created.');
     }
+    subjectDialog.close();
     render();
   }
 
@@ -226,12 +351,13 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
       publicKeyDer: material.publicKeyDer,
       subjectDn: subject.subjectDn,
       subjectBytes: subject.bytes,
-      hashAlgorithm: selectedHash()
+      hashAlgorithm: selectedHash('#csrHashAlgorithm')
     });
     const csr = { id: createId(), label: `CSR: ${subject.subjectDn}`, ...result };
     (material.csrs ??= []).push(csr);
     selection = { keyId: material.id, kind: 'csr', itemId: csr.id };
     logOperation('createCsr', 'Certificate signing request created.');
+    csrDialog.close();
     render();
   }
 
@@ -246,13 +372,30 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
       publicKeyDer: material.publicKeyDer,
       subjectDn: subject.subjectDn,
       subjectBytes: subject.bytes,
-      hashAlgorithm: selectedHash(),
+      hashAlgorithm: selectedHash('#certificateHashAlgorithm'),
       validityDays,
       keyUsages
     });
     material.certificateDer = result.bytes;
     selection = { keyId: material.id, kind: 'certificate' };
     logOperation('createSelfSignedCertificate', `Self-signed certificate created for ${subject.subjectDn}.`);
+    certificateDialog.close();
+    render();
+  }
+
+  async function loadCertificateIntoMaterial(keyId: string, certificateDer: Uint8Array, sourceName: string): Promise<void> {
+    const material = findMaterial(keyId);
+    if (!material) throw new Error('The target key pair was not found.');
+    if (!isCertificate(certificateDer)) throw new Error('The selected data is not an X.509 certificate.');
+    const matches = await certificateMatchesKey(material, certificateDer);
+    if (!matches) {
+      const apply = await confirmHost('The certificate public key does not match this key pair. Apply it anyway?');
+      if (!apply) return;
+    }
+    material.certificateDer = certificateDer;
+    if (matches) material.publicKeyDer = extractCertificatePublicKey(certificateDer);
+    selection = { keyId, kind: 'certificate' };
+    logOperation('Certificate.load', `${matches ? 'Loaded' : 'Applied'} certificate from ${sourceName}.`);
     render();
   }
 
@@ -293,12 +436,24 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     render();
   }
 
+  async function deleteMaterial(keyId: string): Promise<void> {
+    const material = findMaterial(keyId);
+    if (!material) return;
+    const confirmed = await confirmHost(`Delete ${material.label || 'key pair'}?`);
+    if (!confirmed) return;
+    materials = materials.filter((item) => item.id !== keyId);
+    selection = firstSelection(materials[0]);
+    logOperation('delete', 'Key pair deleted.');
+    render();
+  }
+
   function render(): void {
-    tree.innerHTML = materials.length ? materials.map(renderMaterialTree).join('') : '<p class="empty">No keys loaded.</p>';
+    tree.className = materials.length ? 'tree' : 'tree empty';
+    tree.innerHTML = materials.length ? materials.map(renderMaterialTree).join('') : 'No key generated yet.';
     const selected = selectionBytes();
     const material = selection ? findMaterial(selection.keyId) : undefined;
     if (!selected || !material) {
-      details.innerHTML = '<p class="empty">Generate or import a key to begin.</p>';
+      details.innerHTML = '<span>Generate or import a key to begin.</span>';
       viewer.close();
       subjectForm.hidden = true;
       updateActions(false);
@@ -306,13 +461,10 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     }
     const info = recognizeKeyMaterial(material);
     details.innerHTML = `
-      <h2>${escapeHtml(selected.label)}</h2>
-      <dl>
-        <dt>Key family</dt><dd>${escapeHtml(info.family)}</dd>
-        <dt>Object</dt><dd>${escapeHtml(selection?.kind ?? '')}</dd>
-        <dt>Length</dt><dd>${selected.bytes.byteLength.toLocaleString()} bytes</dd>
-        <dt>Source</dt><dd>${escapeHtml(material.sourceName ?? 'Created in browser')}</dd>
-      </dl>`;
+      <strong>${escapeHtml(selected.label)}</strong>
+      <span>${escapeHtml(info.family)}</span>
+      <span>${escapeHtml(selection?.kind ?? '')}</span>
+      <span>${selected.bytes.byteLength.toLocaleString()} bytes</span>`;
     viewer.loadBytes(selected.bytes, `${selected.label} (${selected.bytes.byteLength} bytes)`);
     viewer.setEditable(false);
     subjectForm.hidden = false;
@@ -321,24 +473,41 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
       ? material.subjectDns?.find((item) => item.id === selectedItemId)
       : undefined;
     subjectInput.value = subject?.subjectDn ?? material.subjectDns?.[0]?.subjectDn ?? 'CN=example.test, O=Example, C=US';
-    query<HTMLButtonElement>(mount, '#subjectSubmit').textContent = subject ? 'Update SubjectDN' : 'Add SubjectDN';
+    query<HTMLButtonElement>(mount, '#subjectSubmit').textContent = subject ? 'Update' : 'Create';
     updateActions(true);
   }
 
   function renderMaterialTree(material: KeyGadgetsKeyMaterial): string {
+    const info = recognizeKeyMaterial(material);
     const children = [
-      material.privateKeyDer ? treeButton(material, 'private-key', 'Private Key') : '',
-      material.publicKeyDer ? treeButton(material, 'public-key', 'Public Key') : '',
-      material.certificateDer ? treeButton(material, 'certificate', 'Certificate') : '',
       ...(material.subjectDns ?? []).map((item) => treeButton(material, 'subject-dn', item.label, item.id)),
+      material.privateKeyDer ? treeButton(material, 'private-key', 'Private Key', undefined, info.label) : '',
+      material.publicKeyDer ? treeButton(material, 'public-key', 'Public Key', undefined, info.label) : '',
+      material.certificateDer ? treeButton(material, 'certificate', 'Certificate') : '',
       ...(material.csrs ?? []).map((item) => treeButton(material, 'csr', item.label, item.id))
     ].join('');
-    return `<section class="key-node"><h3>${escapeHtml(material.label || 'Key')}</h3><div class="tree-children">${children}</div></section>`;
+    return `<details class="tree-node" open>
+      <summary><span class="tree-toggle" aria-hidden="true">−</span><button class="tree-icon-button" type="button" data-tree-menu="parent" data-key-id="${escapeHtml(material.id)}" aria-label="${escapeHtml(material.label || info.label)} actions"><span class="tree-icon folder" aria-hidden="true"></span></button><span class="tree-tag key-label">${escapeHtml(material.label || info.label)}</span></summary>
+      <div class="tree-children">${children}</div>
+    </details>`;
   }
 
-  function treeButton(material: KeyGadgetsKeyMaterial, kind: Selection['kind'], label: string, itemId?: string): string {
+  function treeButton(material: KeyGadgetsKeyMaterial, kind: Selection['kind'], label: string, itemId?: string, comment?: string): string {
     const active = selection?.keyId === material.id && selection.kind === kind && selection.itemId === itemId;
-    return `<button class="tree-item${active ? ' active' : ''}" data-key-id="${escapeHtml(material.id)}" data-kind="${kind}"${itemId ? ` data-item-id="${escapeHtml(itemId)}"` : ''}>${escapeHtml(label)}</button>`;
+    const bytes = kind === 'private-key' ? material.privateKeyDer
+      : kind === 'public-key' ? material.publicKeyDer
+        : kind === 'certificate' ? material.certificateDer
+          : kind === 'subject-dn' ? material.subjectDns?.find((item) => item.id === itemId)?.bytes
+            : material.csrs?.find((item) => item.id === itemId)?.bytes;
+    const suffix = comment ? ` // ${comment}` : '';
+    const menuKind = kind === 'private-key' ? 'private' : kind === 'public-key' ? 'public' : '';
+    const icon = menuKind
+      ? `<button class="tree-icon-button" type="button" data-tree-menu="${menuKind}" data-key-id="${escapeHtml(material.id)}" aria-label="${escapeHtml(label)} actions"><span class="tree-icon leaf" aria-hidden="true"></span></button>`
+      : '<span class="tree-icon leaf" aria-hidden="true"></span>';
+    return `<details class="tree-node tree-leaf"><summary class="tree-row${active ? ' selected' : ''}">
+      <span class="tree-toggle" aria-hidden="true"></span>${icon}
+      <button class="tree-item" aria-label="${escapeHtml(label)}" data-key-id="${escapeHtml(material.id)}" data-kind="${kind}"${itemId ? ` data-item-id="${escapeHtml(itemId)}"` : ''}>${escapeHtml(label)} (${bytes?.byteLength ?? 0})${escapeHtml(suffix)}</button>
+    </summary></details>`;
   }
 
   function selectionBytes(): { bytes: Uint8Array; kind: Selection['kind']; label: string } | null {
@@ -374,13 +543,152 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
   }
 
   function updateActions(enabled: boolean): void {
-    for (const id of ['saveButton', 'exportP12Button', 'deleteButton', 'createCsrButton', 'createCertificateButton']) {
-      query<HTMLButtonElement>(mount, `#${id}`).disabled = !enabled;
+    const material = enabled && selection ? findMaterial(selection.keyId) : undefined;
+    const hasKeyPair = Boolean(material?.privateKeyDer && material.publicKeyDer);
+    const canIssue = hasKeyPair && Boolean(material?.subjectDns?.length);
+    query<HTMLButtonElement>(mount, '#actionsButton').disabled = !enabled;
+    query<HTMLButtonElement>(mount, '#saveButton').disabled = !enabled;
+    query<HTMLButtonElement>(mount, '#deleteButton').disabled = !enabled;
+    query<HTMLButtonElement>(mount, '#newSubjectButton').disabled = !enabled;
+    query<HTMLButtonElement>(mount, '#exportP12Button').disabled = !material?.privateKeyDer;
+    for (const id of ['openCsrDialogButton', 'openCertificateDialogButton', 'createCsrButton', 'createCertificateButton']) {
+      query<HTMLButtonElement>(mount, `#${id}`).disabled = !canIssue;
     }
   }
 
-  function selectedHash(): string {
-    return query<HTMLSelectElement>(mount, '#hashAlgorithm').value;
+  function selectedHash(selector: string): string {
+    return query<HTMLSelectElement>(mount, selector).value;
+  }
+
+  function openSubjectDialog(): void {
+    setMenuOpen(actionsMenu, false);
+    subjectDialog.showModal();
+    subjectInput.focus();
+  }
+
+  function openCsrDialog(): void {
+    setMenuOpen(actionsMenu, false);
+    syncSubjectPreview('#csrSubjectPreview');
+    csrDialog.showModal();
+  }
+
+  function openCertificateDialog(): void {
+    setMenuOpen(actionsMenu, false);
+    syncSubjectPreview('#certificateSubjectPreview');
+    certificateDialog.showModal();
+  }
+
+  function contextKeyRequired(): string {
+    if (!contextKeyId || !findMaterial(contextKeyId)) throw new Error('The context-menu key pair was not found.');
+    return contextKeyId;
+  }
+
+  function selectContextKey(): void {
+    const keyId = contextKeyRequired();
+    selection = firstSelection(findMaterial(keyId));
+  }
+
+  function selectContextNode(kind: 'private-key' | 'public-key'): void {
+    selection = { keyId: contextKeyRequired(), kind };
+  }
+
+  function openTreeContextMenu(kind: string, keyId: string, anchor: HTMLElement): void {
+    const menu = kind === 'parent' ? parentContextMenu
+      : kind === 'private' ? privateKeyContextMenu
+        : kind === 'public' ? publicKeyContextMenu
+          : null;
+    if (!menu) return;
+    const shouldOpen = menu.hidden || contextKeyId !== keyId;
+    closeTreeContextMenus();
+    if (!shouldOpen) return;
+    contextKeyId = keyId;
+    if (menu === privateKeyContextMenu) {
+      const material = findMaterial(keyId);
+      const canIssue = Boolean(material?.privateKeyDer && material.publicKeyDer && material.subjectDns?.length);
+      query<HTMLButtonElement>(mount, '#privateNewCsrButton').disabled = !canIssue;
+      query<HTMLButtonElement>(mount, '#privateNewCertificateButton').disabled = !canIssue;
+    }
+    const rect = anchor.getBoundingClientRect();
+    menu.style.left = `${Math.min(rect.left, window.innerWidth - 230)}px`;
+    menu.style.top = `${Math.min(rect.bottom + 2, window.innerHeight - 160)}px`;
+    menu.hidden = false;
+  }
+
+  function closeTreeContextMenus(): void {
+    parentContextMenu.hidden = true;
+    privateKeyContextMenu.hidden = true;
+    publicKeyContextMenu.hidden = true;
+  }
+
+  function syncSubjectPreview(selector: string): void {
+    const material = selectedMaterialRequired();
+    const selectedItemId = selection?.itemId;
+    const subject = selection?.kind === 'subject-dn'
+      ? material.subjectDns?.find((item) => item.id === selectedItemId)
+      : material.subjectDns?.[0];
+    query<HTMLInputElement>(mount, selector).value = subject?.subjectDn ?? '';
+  }
+
+  function setMenuOpen(menu: HTMLElement, open: boolean): void {
+    menu.hidden = !open;
+    const trigger = menu.previousElementSibling;
+    if (trigger instanceof HTMLButtonElement) trigger.setAttribute('aria-expanded', String(open));
+  }
+
+  function closePopupMenus(event: MouseEvent): void {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target?.closest('.menu-group')) {
+      setMenuOpen(algorithmMenu, false);
+      setMenuOpen(actionsMenu, false);
+    }
+    if (!target?.closest('.node-context-menu') && !target?.closest('[data-tree-menu]')) closeTreeContextMenus();
+  }
+
+  function setupPaneResizer(): void {
+    const workspace = query<HTMLElement>(mount, '.workspace');
+    const resizer = query<HTMLElement>(mount, '#paneResizer');
+    let startX = 0;
+    let startWidth = 0;
+    resizer.addEventListener('pointerdown', (event) => {
+      startX = event.clientX;
+      const panel = query<HTMLElement>(mount, '.key-panel');
+      startWidth = panel.getBoundingClientRect().width;
+      workspace.classList.add('resizing');
+      resizer.setPointerCapture(event.pointerId);
+    });
+    resizer.addEventListener('pointermove', (event) => {
+      if (!resizer.hasPointerCapture(event.pointerId)) return;
+      const maximum = Math.max(280, workspace.getBoundingClientRect().width - 340);
+      const width = Math.min(maximum, Math.max(280, startWidth + event.clientX - startX));
+      workspace.style.setProperty('--key-panel-width', `${width}px`);
+    });
+    resizer.addEventListener('pointerup', (event) => {
+      workspace.classList.remove('resizing');
+      if (resizer.hasPointerCapture(event.pointerId)) resizer.releasePointerCapture(event.pointerId);
+    });
+  }
+
+  function setupLogResizer(): void {
+    const shell = query<HTMLElement>(mount, '.shell');
+    const resizer = query<HTMLElement>(mount, '#logResizer');
+    const logPanel = query<HTMLElement>(mount, '.api-log-panel');
+    let startY = 0;
+    let startHeight = 0;
+    resizer.addEventListener('pointerdown', (event) => {
+      startY = event.clientY;
+      startHeight = logPanel.getBoundingClientRect().height;
+      shell.classList.add('resizing-rows');
+      resizer.setPointerCapture(event.pointerId);
+    });
+    resizer.addEventListener('pointermove', (event) => {
+      if (!resizer.hasPointerCapture(event.pointerId)) return;
+      const height = Math.min(window.innerHeight * 0.45, Math.max(70, startHeight + startY - event.clientY));
+      shell.style.setProperty('--api-log-height', `${height}px`);
+    });
+    resizer.addEventListener('pointerup', (event) => {
+      shell.classList.remove('resizing-rows');
+      if (resizer.hasPointerCapture(event.pointerId)) resizer.releasePointerCapture(event.pointerId);
+    });
   }
 
   async function run(action: () => void | Promise<void>): Promise<void> {
@@ -399,9 +707,17 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
   }
 
   function logOperation(operation: string, message: string, error = false): void {
-    const item = document.createElement('li');
-    item.classList.toggle('error', error);
-    item.textContent = `${new Date().toLocaleTimeString()} ${operation}: ${message}`;
+    const item = document.createElement('div');
+    item.className = `api-log-entry${error ? ' error' : ''}`;
+    const time = document.createElement('time');
+    time.textContent = new Date().toISOString();
+    const operationName = document.createElement('span');
+    operationName.className = 'api-log-operation';
+    operationName.textContent = operation;
+    const detail = document.createElement('span');
+    detail.className = 'api-log-detail';
+    detail.textContent = message;
+    item.append(time, operationName, detail);
     log.prepend(item);
     setStatus(message, error);
   }
@@ -429,6 +745,7 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     materials = [];
     selection = null;
     viewer.close();
+    document.removeEventListener('click', closePopupMenus);
     mount.replaceChildren();
   }
 
@@ -437,43 +754,106 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
 
 function template(): string {
   return `
-    <main class="keygadgets-shell">
-      <header class="app-header">
-        <div><h1>Key Gadgets</h1><p>Local PKI key workspace</p></div>
-        <div class="toolbar">
-          <select id="algorithmSelect" aria-label="Key algorithm"><option>Detecting algorithms…</option></select>
-          <button id="generateButton">Generate</button>
-          <button id="openButton">Import</button>
-          <button id="saveButton" disabled>Save item</button>
-          <button id="exportP12Button" disabled>Export PKCS#12</button>
-          <button id="deleteButton" class="danger" disabled>Delete</button>
-          <button id="themeButton" aria-label="Toggle theme">Theme</button>
-          <input id="fileInput" type="file" accept=".der,.pem,.key,.cer,.crt,.p12,.pfx" hidden />
-        </div>
-      </header>
+    <main class="keygadgets-shell shell">
+      <nav class="toolbar" aria-label="Application">
+        <strong>Key Gadgets</strong>
+        <button id="aboutButton" type="button">About</button>
+        <button id="themeButton" type="button">Theme</button>
+      </nav>
       <section class="workspace">
-        <aside class="tree-pane" aria-label="Key material"><div id="keyTree"></div></aside>
-        <section class="content-pane">
-          <div id="keyDetails" class="details"></div>
-          <section class="viewer-pane" aria-label="ASN.1 viewer"><div id="derEditorMount"></div></section>
-        </section>
-        <aside class="action-pane">
-          <form id="subjectForm" hidden>
-            <h2>SubjectDN</h2>
-            <label>Distinguished name<input id="subjectDn" required /></label>
-            <button id="subjectSubmit" type="submit">Add SubjectDN</button>
-          </form>
-          <section class="certificate-form">
-            <h2>CSR and certificate</h2>
-            <label>Hash<select id="hashAlgorithm"><option>SHA-256</option><option>SHA-384</option><option>SHA-512</option></select></label>
-            <label>Validity days<input id="validityDays" type="number" min="1" max="36500" value="365" /></label>
-            <fieldset><legend>Key usage</legend>${CERTIFICATE_KEY_USAGES.map((usage) => `<label><input type="checkbox" name="keyUsage" value="${usage.id}"${usage.defaultChecked ? ' checked' : ''} /> ${usage.label}</label>`).join('')}</fieldset>
-            <div class="stack"><button id="createCsrButton" disabled>Create CSR</button><button id="createCertificateButton" disabled>Create self-signed certificate</button></div>
+        <section class="key-panel" aria-label="Key material">
+          <nav class="key-menu" aria-label="Key actions">
+            <div class="menu-group">
+              <button id="generateButton" type="button" aria-haspopup="menu" aria-expanded="false">New</button>
+              <div id="algorithmMenu" class="submenu" role="menu" hidden></div>
+              <select id="algorithmSelect" class="visually-hidden" aria-label="Key algorithm"><option>Detecting algorithms…</option></select>
+            </div>
+            <button id="openButton" type="button">Open</button>
+            <button id="exportP12Button" type="button" disabled>Save</button>
+            <div class="menu-group">
+              <button id="actionsButton" type="button" aria-haspopup="menu" aria-expanded="false" disabled>Actions</button>
+              <div id="actionsMenu" class="submenu" role="menu" hidden>
+                <button id="saveButton" type="button" role="menuitem" disabled>Save selected item</button>
+                <button id="newSubjectButton" type="button" role="menuitem" disabled>New SubjectDN</button>
+                <button id="openCsrDialogButton" type="button" role="menuitem" disabled>New CSR</button>
+                <button id="openCertificateDialogButton" type="button" role="menuitem" disabled>New self-signed Cert</button>
+                <button id="deleteButton" class="danger" type="button" role="menuitem" disabled>Delete</button>
+              </div>
+            </div>
+            <input id="fileInput" class="visually-hidden" type="file" accept=".der,.pem,.key,.cer,.crt,.p12,.pfx" />
+            <input id="certificateInput" class="visually-hidden" type="file" accept=".cer,.crt,.der,.pem,application/pkix-cert,application/x-x509-ca-cert" />
+          </nav>
+          <div id="parentContextMenu" class="node-context-menu" role="menu" hidden>
+            <div class="node-context-menu-group" role="none">
+              <button class="node-context-submenu-trigger" type="button" role="menuitem" aria-haspopup="menu">Load Certificate</button>
+              <div class="node-context-submenu" role="menu" aria-label="Load Certificate">
+                <button id="loadCertificateFileButton" type="button" role="menuitem">from File</button>
+                <button id="loadCertificatePemButton" type="button" role="menuitem">from Clipboard as PEM</button>
+                <button id="loadCertificateHexButton" type="button" role="menuitem">from Clipboard as HEX</button>
+              </div>
+            </div>
+            <button id="parentNewSubjectButton" type="button" role="menuitem">New SubjectDN</button>
+            <button id="parentDeleteButton" type="button" role="menuitem">Delete</button>
+          </div>
+          <div id="privateKeyContextMenu" class="node-context-menu" role="menu" hidden>
+            <button id="privateNewCsrButton" type="button" role="menuitem">New CSR</button>
+            <button id="privateNewCertificateButton" type="button" role="menuitem">New self-signed Cert</button>
+            <button id="privateDeleteButton" type="button" role="menuitem">Delete</button>
+          </div>
+          <div id="publicKeyContextMenu" class="node-context-menu" role="menu" hidden>
+            <button id="publicDeleteButton" type="button" role="menuitem">Delete</button>
+          </div>
+          <section class="key-card">
+            <div id="keyTree" class="tree empty">No key generated yet.</div>
+            <div id="keyDetails" class="selection-details"><span>Generate or import a key to begin.</span></div>
+            <p id="status" class="notice" role="status">Ready.</p>
           </section>
-          <section class="about"><strong>Key Gadgets ${KEY_GADGETS_VERSION}</strong><span>DerEditor is embedded read-only.</span></section>
-        </aside>
+        </section>
+        <div id="paneResizer" class="pane-resizer" role="separator" aria-label="Resize panes" aria-orientation="vertical" tabindex="0"></div>
+        <section class="viewer-panel" aria-label="ASN.1 viewer"><div id="derEditorMount"></div></section>
       </section>
-      <footer><p id="status" role="status">Ready.</p><ol id="operationLog" aria-label="Operation log"></ol></footer>
+      <div id="logResizer" class="api-log-resizer" role="separator" aria-label="Resize API log" aria-orientation="horizontal" tabindex="0"></div>
+      <section class="api-log-panel" aria-label="API log">
+        <header class="api-log-header"><button id="clearLogButton" type="button">Clear</button></header>
+        <div id="operationLog" class="api-log-list" role="log" aria-live="polite"></div>
+      </section>
+
+      <dialog id="subjectDialog" class="app-dialog">
+        <form id="subjectForm" class="dialog-panel">
+          <h2>New SubjectDN</h2>
+          <label class="dialog-field"><span>subjectDN</span><input id="subjectDn" required autocomplete="off" placeholder="CN=example.com, O=Example, C=JP" /></label>
+          <div class="dialog-actions"><button type="button" data-close-dialog>Cancel</button><button id="subjectSubmit" type="submit">Create</button></div>
+        </form>
+      </dialog>
+
+      <dialog id="csrDialog" class="app-dialog">
+        <section class="dialog-panel">
+          <h2>New CSR</h2>
+          <label class="dialog-field"><span>subjectDN</span><input id="csrSubjectPreview" readonly /></label>
+          <label class="dialog-field"><span>Hash algorithm</span><select id="csrHashAlgorithm"><option>SHA-256</option><option>SHA-384</option><option>SHA-512</option></select></label>
+          <div class="dialog-actions"><button type="button" data-close-dialog>Cancel</button><button id="createCsrButton" type="button" disabled>Create</button></div>
+        </section>
+      </dialog>
+
+      <dialog id="certificateDialog" class="app-dialog certificate-dialog">
+        <section class="dialog-panel">
+          <h2>New self-signed Cert</h2>
+          <label class="dialog-field"><span>subjectDN</span><input id="certificateSubjectPreview" readonly /></label>
+          <label class="dialog-field"><span>Hash algorithm</span><select id="certificateHashAlgorithm"><option>SHA-256</option><option>SHA-384</option><option>SHA-512</option></select></label>
+          <label class="dialog-field"><span>Validity span days</span><input id="validityDays" type="number" min="1" max="36500" value="365" /></label>
+          <fieldset class="checkbox-list"><legend>Key usage</legend>${CERTIFICATE_KEY_USAGES.map((usage) => `<label class="checkbox-list-item"><input type="checkbox" name="keyUsage" value="${usage.id}"${usage.defaultChecked ? ' checked' : ''} /><span>${usage.label}</span></label>`).join('')}</fieldset>
+          <div class="dialog-actions"><button type="button" data-close-dialog>Cancel</button><button id="createCertificateButton" type="button" disabled>Create</button></div>
+        </section>
+      </dialog>
+
+      <dialog id="aboutDialog" class="app-dialog about-dialog">
+        <section class="about-panel">
+          <p class="about-name">Key Gadgets</p>
+          <p>Version ${KEY_GADGETS_VERSION}</p>
+          <p>DerEditor is embedded read-only.</p>
+          <div class="dialog-actions"><button id="closeAboutButton" type="button">Close</button></div>
+        </section>
+      </dialog>
     </main>`;
 }
 
@@ -491,6 +871,21 @@ function isCertificate(bytes: Uint8Array): boolean {
   } catch {
     return false;
   }
+}
+
+async function readClipboardText(): Promise<string> {
+  if (!navigator.clipboard?.readText) throw new Error('Clipboard read access is not available in this browser context.');
+  const text = await navigator.clipboard.readText();
+  if (!text.trim()) throw new Error('The clipboard is empty.');
+  return text;
+}
+
+function hexToBytes(text: string): Uint8Array {
+  const normalized = text.replace(/0x/gi, '').replace(/[\s:.-]/g, '');
+  if (!normalized || normalized.length % 2 !== 0 || /[^0-9a-f]/i.test(normalized)) {
+    throw new Error('Clipboard HEX must contain an even number of hexadecimal digits.');
+  }
+  return Uint8Array.from(normalized.match(/.{2}/g) ?? [], (pair) => Number.parseInt(pair, 16));
 }
 
 function exportFormat(selected: { bytes: Uint8Array; kind: Selection['kind']; label: string }): {
