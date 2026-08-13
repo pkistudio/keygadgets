@@ -1,0 +1,86 @@
+:root {
+  color-scheme: light dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; background: #eef1f5; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+
+.keygadgets-shell {
+  --bg: #f7f8fa;
+  --panel: #fff;
+  --text: #18202b;
+  --muted: #647184;
+  --border: #d6dce5;
+  --accent: #2867d7;
+  --accent-soft: #e8f0ff;
+  min-height: 100vh;
+  color: var(--text);
+  background: var(--bg);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+[data-theme="dark"] .keygadgets-shell {
+  --bg: #10151d;
+  --panel: #171e28;
+  --text: #ecf1f7;
+  --muted: #9daabc;
+  --border: #344051;
+  --accent: #73a5ff;
+  --accent-soft: #1e3558;
+}
+
+.app-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .85rem 1rem; background: var(--panel); border-bottom: 1px solid var(--border); }
+.app-header h1 { margin: 0; font-size: 1.25rem; }
+.app-header p { margin: .15rem 0 0; color: var(--muted); font-size: .82rem; }
+.toolbar { display: flex; flex-wrap: wrap; gap: .45rem; justify-content: flex-end; }
+button, select, input { color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: .48rem .65rem; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button.danger { color: #c52f3f; }
+
+.workspace { min-height: 0; display: grid; grid-template-columns: minmax(220px, 280px) minmax(420px, 1fr) minmax(260px, 330px); }
+.tree-pane, .action-pane, .content-pane { min-width: 0; min-height: 0; background: var(--panel); }
+.tree-pane { border-right: 1px solid var(--border); padding: .8rem; overflow: auto; }
+.action-pane { border-left: 1px solid var(--border); padding: 1rem; overflow: auto; }
+.content-pane { display: grid; grid-template-rows: minmax(170px, auto) minmax(320px, 1fr); background: var(--bg); }
+.details { padding: 1rem 1.2rem; border-bottom: 1px solid var(--border); overflow: auto; }
+.details h2, .action-pane h2 { margin: 0 0 .8rem; font-size: 1rem; }
+.details dl { display: grid; grid-template-columns: max-content 1fr; gap: .45rem 1rem; margin: 0; font-size: .9rem; }
+.details dt { color: var(--muted); }
+.details dd { margin: 0; overflow-wrap: anywhere; }
+.viewer-pane { min-height: 0; overflow: auto; background: var(--panel); }
+#derEditorMount { min-height: 100%; }
+
+.key-node { margin-bottom: 1rem; }
+.key-node h3 { margin: 0 0 .35rem; font-size: .85rem; overflow-wrap: anywhere; }
+.tree-children { display: grid; gap: .2rem; }
+.tree-item { width: 100%; text-align: left; border-color: transparent; background: transparent; padding: .42rem .55rem; }
+.tree-item.active { color: var(--accent); background: var(--accent-soft); }
+.empty { color: var(--muted); }
+
+.action-pane form, .certificate-form { border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 1rem; }
+.action-pane label { display: grid; gap: .3rem; margin: .65rem 0; color: var(--muted); font-size: .82rem; }
+.action-pane input, .action-pane select { width: 100%; }
+fieldset { border: 1px solid var(--border); border-radius: 6px; margin: .8rem 0; padding: .5rem .7rem; }
+fieldset label { display: flex !important; align-items: center; gap: .45rem !important; margin: .3rem 0 !important; }
+fieldset input { width: auto !important; }
+.stack { display: grid; gap: .45rem; }
+.about { color: var(--muted); font-size: .78rem; display: grid; gap: .2rem; }
+
+footer { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(320px, 2fr); gap: 1rem; min-height: 54px; max-height: 130px; padding: .55rem 1rem; background: var(--panel); border-top: 1px solid var(--border); font-size: .78rem; }
+#status { margin: .2rem 0; }
+#operationLog { margin: 0; padding-left: 1.2rem; overflow: auto; color: var(--muted); }
+.error { color: #d74352 !important; }
+
+@media (max-width: 980px) {
+  .app-header { align-items: flex-start; flex-direction: column; }
+  .toolbar { justify-content: flex-start; }
+  .workspace { display: block; }
+  .tree-pane, .action-pane { border: 0; border-bottom: 1px solid var(--border); max-height: none; }
+  .content-pane { min-height: 650px; }
+  footer { grid-template-columns: 1fr; max-height: none; }
+}
