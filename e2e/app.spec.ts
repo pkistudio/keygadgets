@@ -18,11 +18,12 @@ test('generates a key, creates SubjectDN, and keeps DerEditor read-only', async 
   await expect(page.getByRole('button', { name: 'Private Key', exact: true })).toBeVisible();
   await expect(page.locator('#keyDetails')).toContainText('EC');
 
-  await page.getByRole('button', { name: 'Actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'New SubjectDN' }).click();
+  await expect(page.getByRole('button', { name: 'Actions', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'EC P-256 actions' }).click();
+  await page.locator('#parentContextMenu').getByRole('menuitem', { name: 'New SubjectDN' }).click();
   await page.locator('#subjectDn').fill('CN=e2e.test, O=PKI Studio, C=US');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'CN=e2e.test, O=PKI Studio, C=US' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'CN=e2e.test, O=PKI Studio, C=US', exact: true })).toBeVisible();
   await expect(page.locator('#status')).toContainText('SubjectDN created');
 
   const viewer = page.locator('#derEditorMount');
@@ -33,35 +34,45 @@ test('generates a key, creates SubjectDN, and keeps DerEditor read-only', async 
   expect(errors).toEqual([]);
 });
 
+test('follows the system color scheme without a Theme menu', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Theme', exact: true })).toHaveCount(0);
+  await expect(page.locator('.key-card')).toHaveCSS('background-color', 'rgb(248, 248, 248)');
+
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('.key-card')).toHaveCSS('background-color', 'rgb(32, 35, 41)');
+});
+
 test('creates a CSR and self-signed certificate from the selected SubjectDN', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'New', exact: true }).click();
   await page.getByRole('menuitem', { name: 'EC P-256' }).click();
-  await page.getByRole('button', { name: 'Actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'New SubjectDN' }).click();
+  await page.getByRole('button', { name: 'EC P-256 actions' }).click();
+  await page.locator('#parentContextMenu').getByRole('menuitem', { name: 'New SubjectDN' }).click();
   await page.locator('#subjectDn').fill('CN=certificate.test, O=PKI Studio, C=US');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
 
-  await page.getByRole('button', { name: 'Actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'New CSR' }).click();
+  await page.getByRole('button', { name: 'Private Key actions' }).click();
+  await page.locator('#privateKeyContextMenu').getByRole('menuitem', { name: 'New CSR' }).click();
   await page.locator('#csrDialog').getByRole('button', { name: 'Create' }).click();
-  await expect(page.getByRole('button', { name: /CSR: CN=certificate\.test/ })).toBeVisible();
-  await page.getByRole('button', { name: 'Actions', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'New self-signed Cert' }).click();
+  await expect(page.locator('.tree-item').filter({ hasText: 'CSR: CN=certificate.test' })).toBeVisible();
+  await page.getByRole('button', { name: 'Private Key actions' }).click();
+  await page.locator('#privateKeyContextMenu').getByRole('menuitem', { name: 'New self-signed Cert' }).click();
   await page.locator('#certificateDialog').getByRole('button', { name: 'Create' }).click();
   await expect(page.getByRole('button', { name: 'Certificate', exact: true })).toBeVisible();
   await expect(page.locator('#status')).toContainText('Self-signed certificate created');
 
-  await page.getByRole('button', { name: 'Actions', exact: true }).click();
+  await page.getByRole('button', { name: 'Certificate actions' }).click();
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('menuitem', { name: 'Save selected item' }).click();
+  await page.locator('#itemContextMenu').getByRole('menuitem', { name: 'Save' }).click();
   const certificateDownload = await downloadPromise;
   const certificatePath = await certificateDownload.path();
   expect(certificatePath).not.toBeNull();
 
-  await page.getByRole('button', { name: 'Actions', exact: true }).click();
+  await page.getByRole('button', { name: 'Certificate actions' }).click();
   page.once('dialog', (dialog) => void dialog.accept());
-  await page.locator('#actionsMenu').getByRole('menuitem', { name: 'Delete' }).click();
+  await page.locator('#itemContextMenu').getByRole('menuitem', { name: 'Delete' }).click();
   await expect(page.getByRole('button', { name: 'Certificate', exact: true })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'EC P-256 actions' }).click();
@@ -76,18 +87,18 @@ test('creates a CSR and self-signed certificate from the selected SubjectDN', as
 
   const certificatePem = await readFile(certificatePath!, 'utf8');
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.getByRole('button', { name: 'Actions', exact: true }).click();
+  await page.getByRole('button', { name: 'Certificate actions' }).click();
   page.once('dialog', (dialog) => void dialog.accept());
-  await page.locator('#actionsMenu').getByRole('menuitem', { name: 'Delete' }).click();
+  await page.locator('#itemContextMenu').getByRole('menuitem', { name: 'Delete' }).click();
   await page.evaluate((pem) => navigator.clipboard.writeText(pem), certificatePem);
   await page.getByRole('button', { name: 'EC P-256 actions' }).click();
   await page.locator('#parentContextMenu').getByRole('menuitem', { name: 'Load Certificate' }).hover();
   await page.locator('#parentContextMenu').getByRole('menuitem', { name: 'from Clipboard as PEM' }).click();
   await expect(page.getByRole('button', { name: 'Certificate', exact: true })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Actions', exact: true }).click();
+  await page.getByRole('button', { name: 'Certificate actions' }).click();
   page.once('dialog', (dialog) => void dialog.accept());
-  await page.locator('#actionsMenu').getByRole('menuitem', { name: 'Delete' }).click();
+  await page.locator('#itemContextMenu').getByRole('menuitem', { name: 'Delete' }).click();
   const certificateHex = Buffer.from(certificatePem.replace(/-----[^-]+-----|\s/g, ''), 'base64').toString('hex');
   await page.evaluate((hex) => navigator.clipboard.writeText(hex), certificateHex);
   await page.getByRole('button', { name: 'EC P-256 actions' }).click();
@@ -128,7 +139,7 @@ test('opens tree icon menus without toggling tree nodes and runs shared actions'
   await expect(privateMenu.getByRole('menuitem', { name: 'Delete' })).toBeVisible();
   await privateMenu.getByRole('menuitem', { name: 'New CSR' }).click();
   await page.locator('#csrDialog').getByRole('button', { name: 'Create' }).click();
-  await expect(page.getByRole('button', { name: /CSR: CN=tree-menu\.test/ })).toBeVisible();
+  await expect(page.locator('.tree-item').filter({ hasText: 'CSR: CN=tree-menu.test' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Public Key actions' }).click();
   const publicMenu = page.locator('#publicKeyContextMenu');

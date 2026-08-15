@@ -1,41 +1,41 @@
 :root {
   color-scheme: light dark;
-  --bg-start: #f7f9fc;
-  --bg: #eef1f5;
-  --window: #f8f8f8;
-  --chrome-start: #fff;
-  --chrome: #f2f2f2;
-  --panel: #fff;
-  --panel-border: #b8c0ca;
-  --control-border: #8f98a3;
-  --subtle-border: #c9cdd3;
-  --tree-line: #b9b9b9;
-  --text: #111827;
-  --muted: #5b6470;
-  --hover-border: #9dbce5;
-  --hover-bg: #eaf3ff;
-  --selection: #cfe8ff;
-  --selection-border: #99c7ee;
-  --folder: #f3c14f;
-  --folder-edge: #c69324;
-  --folder-highlight: #ffe08a;
-  --folder-start: #ffe28f;
-  --leaf: #f7f7f7;
-  --leaf-edge: #8b8b8b;
-  --leaf-fold: #dcdcdc;
-  --danger: #b91c1c;
-  --field-bg: #fff;
-  --dialog-overlay: rgb(15 23 42 / 20%);
-  --shadow-strong: rgb(15 23 42 / 18%);
-  --shadow-dialog: rgb(15 23 42 / 22%);
-  --button-bg-start: #fff;
-  --button-bg-end: #e7e9ee;
-  --toggle-border: #7f7f7f;
-  --toggle-text: #333;
-  --toggle-bg: #fff;
-  --splitter: #9aa3af;
-  --api-log-row-border: #edf0f4;
-  --api-log-operation: #1f4f86;
+  --bg-start: light-dark(#f7f9fc, #202329);
+  --bg: light-dark(#eef1f5, #171a20);
+  --window: light-dark(#f8f8f8, #202329);
+  --chrome-start: light-dark(#fff, #2b2f36);
+  --chrome: light-dark(#f2f2f2, #242830);
+  --panel: light-dark(#fff, #1b1f26);
+  --panel-border: light-dark(#b8c0ca, #4a5360);
+  --control-border: light-dark(#8f98a3, #66707d);
+  --subtle-border: light-dark(#c9cdd3, #4c5561);
+  --tree-line: light-dark(#b9b9b9, #6d7480);
+  --text: light-dark(#111827, #e7eaf0);
+  --muted: light-dark(#5b6470, #a8b0bc);
+  --hover-border: light-dark(#9dbce5, #81a9dc);
+  --hover-bg: light-dark(#eaf3ff, #28384b);
+  --selection: light-dark(#cfe8ff, #21496f);
+  --selection-border: light-dark(#99c7ee, #5d91cc);
+  --folder: light-dark(#f3c14f, #d5a83f);
+  --folder-edge: light-dark(#c69324, #a77d25);
+  --folder-highlight: light-dark(#ffe08a, #f0c969);
+  --folder-start: light-dark(#ffe28f, #f3d27a);
+  --leaf: light-dark(#f7f7f7, #dadde3);
+  --leaf-edge: light-dark(#8b8b8b, #8d96a3);
+  --leaf-fold: light-dark(#dcdcdc, #aeb5bf);
+  --danger: light-dark(#b91c1c, #ff9b9b);
+  --field-bg: light-dark(#fff, #20242b);
+  --dialog-overlay: light-dark(rgb(15 23 42 / 20%), rgb(0 0 0 / 48%));
+  --shadow-strong: light-dark(rgb(15 23 42 / 18%), rgb(0 0 0 / 42%));
+  --shadow-dialog: light-dark(rgb(15 23 42 / 22%), rgb(0 0 0 / 50%));
+  --button-bg-start: light-dark(#fff, #343943);
+  --button-bg-end: light-dark(#e7e9ee, #252a32);
+  --toggle-border: light-dark(#7f7f7f, #8d96a3);
+  --toggle-text: light-dark(#333, #e7eaf0);
+  --toggle-bg: light-dark(#fff, #242830);
+  --splitter: light-dark(#9aa3af, #7b8492);
+  --api-log-row-border: light-dark(#edf0f4, #303640);
+  --api-log-operation: light-dark(#1f4f86, #9fc7ff);
   font-family: Tahoma, "MS UI Gothic", "Yu Gothic UI", system-ui, sans-serif;
 }
 
@@ -46,22 +46,8 @@ body { min-width: 320px; color: var(--text); background: linear-gradient(var(--b
 button, input, select { font: inherit; }
 
 .keygadgets-shell { width: 100%; height: 100%; min-width: 0; min-height: 0; color: var(--text); }
-[data-theme="dark"].keygadgets-shell {
-  color-scheme: dark;
-  --bg-start: #202329; --bg: #171a20; --window: #202329;
-  --chrome-start: #2b2f36; --chrome: #242830; --panel: #1b1f26;
-  --panel-border: #4a5360; --control-border: #66707d; --subtle-border: #4c5561;
-  --tree-line: #6d7480; --text: #e7eaf0; --muted: #a8b0bc;
-  --hover-border: #81a9dc; --hover-bg: #28384b; --selection: #21496f;
-  --selection-border: #5d91cc; --folder: #d5a83f; --folder-edge: #a77d25;
-  --folder-highlight: #f0c969; --folder-start: #f3d27a; --leaf: #dadde3;
-  --leaf-edge: #8d96a3; --leaf-fold: #aeb5bf; --danger: #ff9b9b;
-  --field-bg: #20242b; --dialog-overlay: rgb(0 0 0 / 48%);
-  --shadow-strong: rgb(0 0 0 / 42%); --shadow-dialog: rgb(0 0 0 / 50%);
-  --button-bg-start: #343943; --button-bg-end: #252a32;
-  --toggle-border: #8d96a3; --toggle-text: #e7eaf0; --toggle-bg: #242830;
-  --splitter: #7b8492; --api-log-row-border: #303640; --api-log-operation: #9fc7ff;
-}
+[data-theme="light"].keygadgets-shell { color-scheme: light; }
+[data-theme="dark"].keygadgets-shell { color-scheme: dark; }
 
 .shell { display: flex; flex-direction: column; overflow: hidden; background: linear-gradient(var(--bg-start), var(--bg)); }
 .toolbar, .key-menu {

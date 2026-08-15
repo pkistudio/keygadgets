@@ -50,16 +50,18 @@ are deliberately not synchronized back into Key Gadgets state.
 
 The desktop layout follows Private Key Gadgets: a compact application toolbar,
 a resizable key-material tree on the left, the read-only ASN.1 viewer on the
-right, and a resizable API log along the bottom. Key generation and selected
-item actions use toolbar menus. SubjectDN, CSR, and self-signed certificate
-options use focused dialogs rather than a permanent side panel. Narrow screens
-stack the key and viewer panels without changing operations.
+right, and a resizable API log along the bottom. Key generation and PKCS#12
+export use the left toolbar. SubjectDN, CSR, and self-signed certificate options
+use focused dialogs rather than a permanent side panel. Narrow screens stack
+the key and viewer panels without changing operations.
 
-Tree folder and key icons open contextual command menus without expanding or
+The application follows the browser's preferred light or dark color scheme.
+Hosts embedding the App API may explicitly override that preference.
+
+Tree folder and item icons open contextual command menus without expanding or
 collapsing their nodes. The parent menu loads certificates from files or PEM
 and hexadecimal clipboard text, creates SubjectDN values, and deletes the key
-pair. Private-key and public-key menus expose the applicable creation and
-deletion commands. These commands share the same handlers as the Actions menu.
+pair. Item menus provide applicable save, creation, and deletion commands.
 
 ## Network and dependency boundary
 

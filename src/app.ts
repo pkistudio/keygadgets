@@ -54,7 +54,8 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
   const mount = resolveMount(options.mount ?? '#app');
   setDocumentIcon(hasDerEditorTransferPayload() ? derEditorIconUrl : pkistudioIconUrl);
   mount.innerHTML = template();
-  mount.setAttribute('data-theme', options.theme ?? 'light');
+  if (options.theme) mount.setAttribute('data-theme', options.theme);
+  else mount.removeAttribute('data-theme');
 
   const tree = query<HTMLElement>(mount, '#keyTree');
   const details = query<HTMLElement>(mount, '#keyDetails');
@@ -67,7 +68,6 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
   const subjectForm = query<HTMLFormElement>(mount, '#subjectForm');
   const subjectInput = query<HTMLInputElement>(mount, '#subjectDn');
   const algorithmMenu = query<HTMLElement>(mount, '#algorithmMenu');
-  const actionsMenu = query<HTMLElement>(mount, '#actionsMenu');
   const subjectDialog = query<HTMLDialogElement>(mount, '#subjectDialog');
   const csrDialog = query<HTMLDialogElement>(mount, '#csrDialog');
   const certificateDialog = query<HTMLDialogElement>(mount, '#certificateDialog');
@@ -75,11 +75,13 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
   const parentContextMenu = query<HTMLElement>(mount, '#parentContextMenu');
   const privateKeyContextMenu = query<HTMLElement>(mount, '#privateKeyContextMenu');
   const publicKeyContextMenu = query<HTMLElement>(mount, '#publicKeyContextMenu');
+  const itemContextMenu = query<HTMLElement>(mount, '#itemContextMenu');
   const viewer = mountReadOnlyDerEditor(viewerMount);
 
   let materials = [...(options.materials ?? [])];
   let selection: Selection | null = firstSelection(materials[0]);
   let contextKeyId: string | null = null;
+  let contextSelection: Selection | null = null;
   let certificateTargetKeyId: string | null = null;
 
   const instance: KeyGadgetsAppInstance = {
@@ -95,7 +97,6 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
 
   query<HTMLButtonElement>(mount, '#generateButton').addEventListener('click', () => {
     setMenuOpen(algorithmMenu, algorithmMenu.hidden);
-    setMenuOpen(actionsMenu, false);
   });
   algorithmMenu.addEventListener('click', (event) => {
     const button = (event.target as Element | null)?.closest<HTMLButtonElement>('button[data-algorithm]');
@@ -105,24 +106,9 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     void run(async () => { await generate(button.dataset.algorithm!); });
   });
   query<HTMLButtonElement>(mount, '#openButton').addEventListener('click', () => fileInput.click());
-  query<HTMLButtonElement>(mount, '#saveButton').addEventListener('click', () => {
-    setMenuOpen(actionsMenu, false);
-    void run(saveSelection);
-  });
   query<HTMLButtonElement>(mount, '#exportP12Button').addEventListener('click', () => void run(exportPkcs12));
-  query<HTMLButtonElement>(mount, '#deleteButton').addEventListener('click', () => {
-    setMenuOpen(actionsMenu, false);
-    void run(deleteSelection);
-  });
   query<HTMLButtonElement>(mount, '#createCsrButton').addEventListener('click', () => void run(createSelectedCsr));
   query<HTMLButtonElement>(mount, '#createCertificateButton').addEventListener('click', () => void run(createSelectedCertificate));
-  query<HTMLButtonElement>(mount, '#actionsButton').addEventListener('click', () => {
-    setMenuOpen(actionsMenu, actionsMenu.hidden);
-    setMenuOpen(algorithmMenu, false);
-  });
-  query<HTMLButtonElement>(mount, '#newSubjectButton').addEventListener('click', openSubjectDialog);
-  query<HTMLButtonElement>(mount, '#openCsrDialogButton').addEventListener('click', openCsrDialog);
-  query<HTMLButtonElement>(mount, '#openCertificateDialogButton').addEventListener('click', openCertificateDialog);
 
   query<HTMLButtonElement>(mount, '#parentNewSubjectButton').addEventListener('click', () => {
     selectContextKey();
@@ -144,6 +130,11 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     closeTreeContextMenus();
     openCertificateDialog();
   });
+  query<HTMLButtonElement>(mount, '#privateSaveButton').addEventListener('click', () => void run(async () => {
+    selectContextNode('private-key');
+    closeTreeContextMenus();
+    await saveSelection();
+  }));
   query<HTMLButtonElement>(mount, '#privateDeleteButton').addEventListener('click', () => void run(async () => {
     selectContextNode('private-key');
     closeTreeContextMenus();
@@ -151,6 +142,21 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
   }));
   query<HTMLButtonElement>(mount, '#publicDeleteButton').addEventListener('click', () => void run(async () => {
     selectContextNode('public-key');
+    closeTreeContextMenus();
+    await deleteSelection();
+  }));
+  query<HTMLButtonElement>(mount, '#publicSaveButton').addEventListener('click', () => void run(async () => {
+    selectContextNode('public-key');
+    closeTreeContextMenus();
+    await saveSelection();
+  }));
+  query<HTMLButtonElement>(mount, '#itemSaveButton').addEventListener('click', () => void run(async () => {
+    selectContextItem();
+    closeTreeContextMenus();
+    await saveSelection();
+  }));
+  query<HTMLButtonElement>(mount, '#itemDeleteButton').addEventListener('click', () => void run(async () => {
+    selectContextItem();
     closeTreeContextMenus();
     await deleteSelection();
   }));
@@ -177,11 +183,6 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     log.replaceChildren();
     logOperation('clear', 'API log cleared.');
   });
-  query<HTMLButtonElement>(mount, '#themeButton').addEventListener('click', () => {
-    const theme = mount.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-    mount.setAttribute('data-theme', theme);
-  });
-
   for (const button of mount.querySelectorAll<HTMLButtonElement>('[data-close-dialog]')) {
     button.addEventListener('click', () => button.closest<HTMLDialogElement>('dialog')?.close());
   }
@@ -216,7 +217,7 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     if (menuButton?.dataset.keyId && menuButton.dataset.treeMenu) {
       event.preventDefault();
       event.stopPropagation();
-      openTreeContextMenu(menuButton.dataset.treeMenu, menuButton.dataset.keyId, menuButton);
+      openTreeContextMenu(menuButton.dataset.treeMenu, menuButton.dataset.keyId, menuButton, menuButton.dataset.itemId);
       return;
     }
     const button = (event.target as Element | null)?.closest<HTMLButtonElement>('button[data-key-id][data-kind]');
@@ -456,7 +457,7 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
       details.innerHTML = '<span>Generate or import a key to begin.</span>';
       viewer.close();
       subjectForm.hidden = true;
-      updateActions(false);
+      updateControls(false);
       return;
     }
     const info = recognizeKeyMaterial(material);
@@ -474,7 +475,7 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
       : undefined;
     subjectInput.value = subject?.subjectDn ?? material.subjectDns?.[0]?.subjectDn ?? 'CN=example.test, O=Example, C=US';
     query<HTMLButtonElement>(mount, '#subjectSubmit').textContent = subject ? 'Update' : 'Create';
-    updateActions(true);
+    updateControls(true);
   }
 
   function renderMaterialTree(material: KeyGadgetsKeyMaterial): string {
@@ -500,10 +501,7 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
           : kind === 'subject-dn' ? material.subjectDns?.find((item) => item.id === itemId)?.bytes
             : material.csrs?.find((item) => item.id === itemId)?.bytes;
     const suffix = comment ? ` // ${comment}` : '';
-    const menuKind = kind === 'private-key' ? 'private' : kind === 'public-key' ? 'public' : '';
-    const icon = menuKind
-      ? `<button class="tree-icon-button" type="button" data-tree-menu="${menuKind}" data-key-id="${escapeHtml(material.id)}" aria-label="${escapeHtml(label)} actions"><span class="tree-icon leaf" aria-hidden="true"></span></button>`
-      : '<span class="tree-icon leaf" aria-hidden="true"></span>';
+    const icon = `<button class="tree-icon-button" type="button" data-tree-menu="${kind}" data-key-id="${escapeHtml(material.id)}"${itemId ? ` data-item-id="${escapeHtml(itemId)}"` : ''} aria-label="${escapeHtml(label)} actions"><span class="tree-icon leaf" aria-hidden="true"></span></button>`;
     return `<details class="tree-node tree-leaf"><summary class="tree-row${active ? ' selected' : ''}">
       <span class="tree-toggle" aria-hidden="true"></span>${icon}
       <button class="tree-item" aria-label="${escapeHtml(label)}" data-key-id="${escapeHtml(material.id)}" data-kind="${kind}"${itemId ? ` data-item-id="${escapeHtml(itemId)}"` : ''}>${escapeHtml(label)} (${bytes?.byteLength ?? 0})${escapeHtml(suffix)}</button>
@@ -542,16 +540,12 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     return materials.find((material) => material.id === id);
   }
 
-  function updateActions(enabled: boolean): void {
+  function updateControls(enabled: boolean): void {
     const material = enabled && selection ? findMaterial(selection.keyId) : undefined;
     const hasKeyPair = Boolean(material?.privateKeyDer && material.publicKeyDer);
     const canIssue = hasKeyPair && Boolean(material?.subjectDns?.length);
-    query<HTMLButtonElement>(mount, '#actionsButton').disabled = !enabled;
-    query<HTMLButtonElement>(mount, '#saveButton').disabled = !enabled;
-    query<HTMLButtonElement>(mount, '#deleteButton').disabled = !enabled;
-    query<HTMLButtonElement>(mount, '#newSubjectButton').disabled = !enabled;
     query<HTMLButtonElement>(mount, '#exportP12Button').disabled = !material?.privateKeyDer;
-    for (const id of ['openCsrDialogButton', 'openCertificateDialogButton', 'createCsrButton', 'createCertificateButton']) {
+    for (const id of ['createCsrButton', 'createCertificateButton']) {
       query<HTMLButtonElement>(mount, `#${id}`).disabled = !canIssue;
     }
   }
@@ -561,19 +555,16 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
   }
 
   function openSubjectDialog(): void {
-    setMenuOpen(actionsMenu, false);
     subjectDialog.showModal();
     subjectInput.focus();
   }
 
   function openCsrDialog(): void {
-    setMenuOpen(actionsMenu, false);
     syncSubjectPreview('#csrSubjectPreview');
     csrDialog.showModal();
   }
 
   function openCertificateDialog(): void {
-    setMenuOpen(actionsMenu, false);
     syncSubjectPreview('#certificateSubjectPreview');
     certificateDialog.showModal();
   }
@@ -592,16 +583,29 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     selection = { keyId: contextKeyRequired(), kind };
   }
 
-  function openTreeContextMenu(kind: string, keyId: string, anchor: HTMLElement): void {
+  function selectContextItem(): void {
+    if (!contextSelection || !findMaterial(contextSelection.keyId)) {
+      throw new Error('The context-menu item was not found.');
+    }
+    selection = contextSelection;
+  }
+
+  function openTreeContextMenu(kind: string, keyId: string, anchor: HTMLElement, itemId?: string): void {
     const menu = kind === 'parent' ? parentContextMenu
-      : kind === 'private' ? privateKeyContextMenu
-        : kind === 'public' ? publicKeyContextMenu
-          : null;
-    if (!menu) return;
-    const shouldOpen = menu.hidden || contextKeyId !== keyId;
+      : kind === 'private-key' ? privateKeyContextMenu
+        : kind === 'public-key' ? publicKeyContextMenu
+          : itemContextMenu;
+    const itemChanged = kind !== 'parent'
+      && (contextSelection?.kind !== kind || contextSelection.itemId !== itemId);
+    const shouldOpen = menu.hidden || contextKeyId !== keyId || itemChanged;
     closeTreeContextMenus();
     if (!shouldOpen) return;
     contextKeyId = keyId;
+    contextSelection = kind === 'parent' ? null : {
+      keyId,
+      kind: kind as Selection['kind'],
+      itemId
+    };
     if (menu === privateKeyContextMenu) {
       const material = findMaterial(keyId);
       const canIssue = Boolean(material?.privateKeyDer && material.publicKeyDer && material.subjectDns?.length);
@@ -618,6 +622,7 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     parentContextMenu.hidden = true;
     privateKeyContextMenu.hidden = true;
     publicKeyContextMenu.hidden = true;
+    itemContextMenu.hidden = true;
   }
 
   function syncSubjectPreview(selector: string): void {
@@ -639,7 +644,6 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     const target = event.target instanceof Element ? event.target : null;
     if (!target?.closest('.menu-group')) {
       setMenuOpen(algorithmMenu, false);
-      setMenuOpen(actionsMenu, false);
     }
     if (!target?.closest('.node-context-menu') && !target?.closest('[data-tree-menu]')) closeTreeContextMenus();
   }
@@ -758,7 +762,6 @@ function template(): string {
       <nav class="toolbar" aria-label="Application">
         <strong>Key Gadgets</strong>
         <button id="aboutButton" type="button">About</button>
-        <button id="themeButton" type="button">Theme</button>
       </nav>
       <section class="workspace">
         <section class="key-panel" aria-label="Key material">
@@ -770,16 +773,6 @@ function template(): string {
             </div>
             <button id="openButton" type="button">Open</button>
             <button id="exportP12Button" type="button" disabled>Save</button>
-            <div class="menu-group">
-              <button id="actionsButton" type="button" aria-haspopup="menu" aria-expanded="false" disabled>Actions</button>
-              <div id="actionsMenu" class="submenu" role="menu" hidden>
-                <button id="saveButton" type="button" role="menuitem" disabled>Save selected item</button>
-                <button id="newSubjectButton" type="button" role="menuitem" disabled>New SubjectDN</button>
-                <button id="openCsrDialogButton" type="button" role="menuitem" disabled>New CSR</button>
-                <button id="openCertificateDialogButton" type="button" role="menuitem" disabled>New self-signed Cert</button>
-                <button id="deleteButton" class="danger" type="button" role="menuitem" disabled>Delete</button>
-              </div>
-            </div>
             <input id="fileInput" class="visually-hidden" type="file" accept=".der,.pem,.key,.cer,.crt,.p12,.pfx" />
             <input id="certificateInput" class="visually-hidden" type="file" accept=".cer,.crt,.der,.pem,application/pkix-cert,application/x-x509-ca-cert" />
           </nav>
@@ -796,12 +789,18 @@ function template(): string {
             <button id="parentDeleteButton" type="button" role="menuitem">Delete</button>
           </div>
           <div id="privateKeyContextMenu" class="node-context-menu" role="menu" hidden>
+            <button id="privateSaveButton" type="button" role="menuitem">Save</button>
             <button id="privateNewCsrButton" type="button" role="menuitem">New CSR</button>
             <button id="privateNewCertificateButton" type="button" role="menuitem">New self-signed Cert</button>
             <button id="privateDeleteButton" type="button" role="menuitem">Delete</button>
           </div>
           <div id="publicKeyContextMenu" class="node-context-menu" role="menu" hidden>
+            <button id="publicSaveButton" type="button" role="menuitem">Save</button>
             <button id="publicDeleteButton" type="button" role="menuitem">Delete</button>
+          </div>
+          <div id="itemContextMenu" class="node-context-menu" role="menu" hidden>
+            <button id="itemSaveButton" type="button" role="menuitem">Save</button>
+            <button id="itemDeleteButton" type="button" role="menuitem">Delete</button>
           </div>
           <section class="key-card">
             <div id="keyTree" class="tree empty">No key generated yet.</div>
