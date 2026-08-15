@@ -9,11 +9,12 @@ generating, importing, exporting, and inspecting PKI key material.
 
 - Keep all key and certificate processing client-side.
 - Do not implement remote retrieval or telemetry.
-- The only allowed dependency on another PkiStudio package is the published,
-  version-pinned `@pkistudio/dereditor` npm package.
+- The only allowed dependencies on other PkiStudio packages are the published,
+  version-pinned `@pkistudio/dereditor` and `@pkistudio/x509gadgets` npm packages.
 - Consume only DerEditor package exports. Do not copy its source, import its
   internal paths, use a Git dependency, or checkout its repository in CI.
 - Keep DerEditor interoperability in `src/dereditor-adapter.ts`.
+- Keep X.509 Gadgets window transfer interoperability in `src/x509-transfer.ts`.
 - Keep reusable key and certificate operations in `src/core.ts`, PKCS#12
   operations in `src/pkcs12.ts`, and DOM behavior in `src/app.ts`.
 - Keep the embedded DerEditor read-only. SubjectDN editing belongs to Key

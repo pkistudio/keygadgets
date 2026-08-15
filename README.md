@@ -3,7 +3,7 @@
 Key Gadgets is a local-only browser application and reusable TypeScript API for
 generating, importing, exporting, and inspecting PKI key material.
 
-Current version: 0.1.1
+Current version: 0.1.2
 
 Private keys, certificates, CSRs, SubjectDN values, and PKCS#12 files stay in
 browser memory unless the user explicitly exports them. The application does
@@ -21,19 +21,23 @@ not retrieve remote resources or send telemetry, and its production page sets
 - Create PKCS#10 CSRs and self-signed certificates for RSA and EC keys.
 - Match certificates and public keys to private keys.
 - Inspect every DER object in an embedded read-only DerEditor.
+- Send a certificate directly to an independent X.509 Gadgets viewer window.
 - Use the Core, PKCS#12, and browser App APIs independently.
 
 ## Independence
 
-The only runtime dependency on another PkiStudio package is the published,
-version-pinned `@pkistudio/dereditor` package. Key Gadgets does not consume
-source, internal paths, workflows, Git branches, or unpublished APIs from any
-PkiStudio repository.
+The only runtime dependencies on other PkiStudio packages are the published,
+version-pinned `@pkistudio/dereditor` and `@pkistudio/x509gadgets` packages. Key
+Gadgets does not consume source, internal paths, workflows, Git branches, or
+unpublished APIs from any PkiStudio repository.
 
 DerEditor integration is isolated in `src/dereditor-adapter.ts`. The embedded
 viewer receives DER bytes and is always read-only. SubjectDN editing does not
 use or observe DerEditor DOM internals. A subtree sent to the standalone
 DerEditor window may be edited independently and is not synchronized back.
+X.509 Gadgets integration uses only its published App and stylesheet exports;
+certificate DER is copied directly to its standalone window without network or
+persistent-storage transfer.
 
 See [the dependency policy](docs/dependency-policy.md) for the enforced rules.
 

@@ -45,6 +45,11 @@ test('follows the system color scheme without a Theme menu', async ({ page }) =>
 });
 
 test('creates a CSR and self-signed certificate from the selected SubjectDN', async ({ page }) => {
+  const externalRequests: string[] = [];
+  page.context().on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.hostname !== '127.0.0.1') externalRequests.push(request.url());
+  });
   await page.goto('/');
   await page.getByRole('button', { name: 'New', exact: true }).click();
   await page.getByRole('menuitem', { name: 'EC P-256' }).click();
@@ -64,15 +69,27 @@ test('creates a CSR and self-signed certificate from the selected SubjectDN', as
   await expect(page.locator('#status')).toContainText('Self-signed certificate created');
 
   await page.getByRole('button', { name: 'Certificate actions' }).click();
+  const certificateMenu = page.locator('#certificateContextMenu');
+  await certificateMenu.getByRole('menuitem', { name: 'Send to', exact: true }).hover();
+  await expect(certificateMenu.getByRole('menuitem', { name: 'X509 Gadgets', exact: true })).toBeVisible();
+  const popupPromise = page.waitForEvent('popup');
+  await certificateMenu.getByRole('menuitem', { name: 'X509 Gadgets', exact: true }).click();
+  const x509Viewer = await popupPromise;
+  await expect(x509Viewer.locator('.x509-toolbar')).toContainText('X.509 Gadgets');
+  await expect(x509Viewer.locator('#x509Status')).toContainText('Loaded certificate.der as a certificate.');
+  await expect(page.locator('#status')).toContainText('Certificate opened in X.509 Gadgets.');
+  await x509Viewer.close();
+
+  await page.getByRole('button', { name: 'Certificate actions' }).click();
   const downloadPromise = page.waitForEvent('download');
-  await page.locator('#itemContextMenu').getByRole('menuitem', { name: 'Save' }).click();
+  await certificateMenu.getByRole('menuitem', { name: 'Save' }).click();
   const certificateDownload = await downloadPromise;
   const certificatePath = await certificateDownload.path();
   expect(certificatePath).not.toBeNull();
 
   await page.getByRole('button', { name: 'Certificate actions' }).click();
   page.once('dialog', (dialog) => void dialog.accept());
-  await page.locator('#itemContextMenu').getByRole('menuitem', { name: 'Delete' }).click();
+  await certificateMenu.getByRole('menuitem', { name: 'Delete' }).click();
   await expect(page.getByRole('button', { name: 'Certificate', exact: true })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'EC P-256 actions' }).click();
@@ -89,7 +106,7 @@ test('creates a CSR and self-signed certificate from the selected SubjectDN', as
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.getByRole('button', { name: 'Certificate actions' }).click();
   page.once('dialog', (dialog) => void dialog.accept());
-  await page.locator('#itemContextMenu').getByRole('menuitem', { name: 'Delete' }).click();
+  await certificateMenu.getByRole('menuitem', { name: 'Delete' }).click();
   await page.evaluate((pem) => navigator.clipboard.writeText(pem), certificatePem);
   await page.getByRole('button', { name: 'EC P-256 actions' }).click();
   await page.locator('#parentContextMenu').getByRole('menuitem', { name: 'Load Certificate' }).hover();
@@ -98,7 +115,7 @@ test('creates a CSR and self-signed certificate from the selected SubjectDN', as
 
   await page.getByRole('button', { name: 'Certificate actions' }).click();
   page.once('dialog', (dialog) => void dialog.accept());
-  await page.locator('#itemContextMenu').getByRole('menuitem', { name: 'Delete' }).click();
+  await certificateMenu.getByRole('menuitem', { name: 'Delete' }).click();
   const certificateHex = Buffer.from(certificatePem.replace(/-----[^-]+-----|\s/g, ''), 'base64').toString('hex');
   await page.evaluate((hex) => navigator.clipboard.writeText(hex), certificateHex);
   await page.getByRole('button', { name: 'EC P-256 actions' }).click();
@@ -106,6 +123,7 @@ test('creates a CSR and self-signed certificate from the selected SubjectDN', as
   await page.locator('#parentContextMenu').getByRole('menuitem', { name: 'from Clipboard as HEX' }).click();
   await expect(page.getByRole('button', { name: 'Certificate', exact: true })).toBeVisible();
   await expect(page.locator('#status')).toContainText('clipboard HEX');
+  expect(externalRequests).toEqual([]);
 });
 
 test('opens tree icon menus without toggling tree nodes and runs shared actions', async ({ page }) => {
