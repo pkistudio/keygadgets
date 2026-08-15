@@ -28,11 +28,12 @@ Source** set to **GitHub Actions**. The `github-pages` environment must allow
 
 ## GitHub authentication
 
-Add `KEYGADGETS_GH_TOKEN` as a repository Actions secret. It must be a GitHub
-token that can read deployments and create tags and Releases in
-`pkistudio/keygadgets`. The Release and npm workflows use it only for GitHub
-API access and authenticated checkout/tag operations. They fail closed if the
-secret is absent.
+`KEYGADGETS_GH_TOKEN` may be added as a repository Actions secret when a
+dedicated GitHub token is desired. It must be able to read deployments and
+create tags and Releases in `pkistudio/keygadgets`. The Release and npm
+workflows prefer it for GitHub API access and authenticated checkout/tag
+operations, then fall back to the short-lived `github.token` with the explicit
+workflow permissions declared in each file.
 
 A GitHub token cannot authenticate to the npm registry. npm publication uses
 Trusted Publishing through OIDC. Because `@pkistudio/keygadgets` has not been

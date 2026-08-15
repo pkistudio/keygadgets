@@ -18,12 +18,13 @@ test('resolves stable release versions without a v prefix', async () => {
   await assert.rejects(resolveVersion('--version', 'v1.2.3'), /without a v prefix/);
 });
 
-test('release workflow requires deployed main, the GitHub token, and pre-merged version metadata', async () => {
+test('release workflow requires deployed main and pre-merged version metadata', async () => {
   const workflow = await readFile(new URL('.github/workflows/release.yml', root), 'utf8');
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /contents: write/);
   assert.match(workflow, /deployments: read/);
   assert.match(workflow, /secrets\.KEYGADGETS_GH_TOKEN/g);
+  assert.match(workflow, /secrets\.KEYGADGETS_GH_TOKEN \|\| github\.token/g);
   assert.match(workflow, /environment=github-pages/);
   assert.match(workflow, /prepare-release\.mjs resolve/);
   assert.match(workflow, /prepare-release\.mjs apply/);
@@ -41,6 +42,7 @@ test('npm workflow publishes only stable GitHub Releases with bootstrap or OIDC'
   assert.match(workflow, /Only a published stable GitHub Release/);
   assert.match(workflow, /@pkistudio\/keygadgets/);
   assert.match(workflow, /secrets\.KEYGADGETS_GH_TOKEN/g);
+  assert.match(workflow, /secrets\.KEYGADGETS_GH_TOKEN \|\| github\.token/g);
   assert.match(workflow, /inputs\.authentication == 'trusted'/);
   assert.match(workflow, /inputs\.authentication == 'token-bootstrap'/);
   assert.match(workflow, /secrets\.NPM_TOKEN/);
