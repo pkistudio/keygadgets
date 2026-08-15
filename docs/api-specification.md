@@ -82,6 +82,13 @@ The embedded DerEditor is initialized with the packaged OID Resolver and
 DerEditor transfers open in a separate editable `viewer.html`; the transferred
 subtree is independent and does not update the Key Gadgets application state.
 
+The browser UI can open a selected certificate in the published X.509 Gadgets
+App through **Send to > X509 Gadgets**. A local `x509-viewer.html` entry imports
+only the package's public `./app` and `./styles.css` exports. The two same-origin
+windows exchange a copied DER `ArrayBuffer` through an authenticated,
+one-time `postMessage` handshake; the transfer is not part of the public Key
+Gadgets App API and does not modify the source material.
+
 ## Errors and compatibility
 
 Parsing, conversion, unsupported algorithms, password failures, and missing

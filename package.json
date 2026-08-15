@@ -1,6 +1,6 @@
 {
   "name": "@pkistudio/keygadgets",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Local-only PKI key generation, import, export, and inspection tools.",
   "type": "module",
   "main": "./dist/core.js",
@@ -66,6 +66,7 @@
   "license": "MIT",
   "dependencies": {
     "@pkistudio/dereditor": "0.1.4",
+    "@pkistudio/x509gadgets": "0.2.1",
     "asn1js": "3.0.10",
     "pkijs": "3.4.0"
   },

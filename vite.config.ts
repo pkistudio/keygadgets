@@ -16,6 +16,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         viewer: resolve(__dirname, 'viewer.html'),
+        x509Viewer: resolve(__dirname, 'x509-viewer.html'),
         core: resolve(__dirname, 'src/core.ts'),
         pkcs12: resolve(__dirname, 'src/pkcs12.ts'),
         app: resolve(__dirname, 'src/app.ts')

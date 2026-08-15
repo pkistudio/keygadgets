@@ -22,6 +22,7 @@ import { mountReadOnlyDerEditor } from './dereditor-adapter';
 import { createId, toArrayBuffer } from './internal';
 import { readPkcs12, writePkcs12 } from './pkcs12';
 import { KEY_GADGETS_VERSION } from './version';
+import { openX509GadgetsViewer } from './x509-transfer';
 
 export type KeyGadgetsHost = {
   confirm?: (message: string) => boolean | Promise<boolean>;
@@ -75,6 +76,7 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
   const parentContextMenu = query<HTMLElement>(mount, '#parentContextMenu');
   const privateKeyContextMenu = query<HTMLElement>(mount, '#privateKeyContextMenu');
   const publicKeyContextMenu = query<HTMLElement>(mount, '#publicKeyContextMenu');
+  const certificateContextMenu = query<HTMLElement>(mount, '#certificateContextMenu');
   const itemContextMenu = query<HTMLElement>(mount, '#itemContextMenu');
   const viewer = mountReadOnlyDerEditor(viewerMount);
 
@@ -149,6 +151,31 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     selectContextNode('public-key');
     closeTreeContextMenus();
     await saveSelection();
+  }));
+  query<HTMLButtonElement>(mount, '#certificateSendToX509GadgetsButton').addEventListener('click', () => void run(() => {
+    selectContextItem();
+    const material = selectedMaterialRequired();
+    if (selection?.kind !== 'certificate' || !material.certificateDer) {
+      throw new Error('The selected certificate was not found.');
+    }
+    closeTreeContextMenus();
+    openX509GadgetsViewer({
+      bytes: material.certificateDer,
+      sourceName: 'certificate.der',
+      onLoaded: () => logOperation('X509Gadgets.loadObject', 'Certificate opened in X.509 Gadgets.'),
+      onError: (error) => logOperation('X509Gadgets.loadObject', error.message, true)
+    });
+    logOperation('X509Gadgets.open', 'Opening certificate in X.509 Gadgets…');
+  }));
+  query<HTMLButtonElement>(mount, '#certificateSaveButton').addEventListener('click', () => void run(async () => {
+    selectContextItem();
+    closeTreeContextMenus();
+    await saveSelection();
+  }));
+  query<HTMLButtonElement>(mount, '#certificateDeleteButton').addEventListener('click', () => void run(async () => {
+    selectContextItem();
+    closeTreeContextMenus();
+    await deleteSelection();
   }));
   query<HTMLButtonElement>(mount, '#itemSaveButton').addEventListener('click', () => void run(async () => {
     selectContextItem();
@@ -594,6 +621,7 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     const menu = kind === 'parent' ? parentContextMenu
       : kind === 'private-key' ? privateKeyContextMenu
         : kind === 'public-key' ? publicKeyContextMenu
+          : kind === 'certificate' ? certificateContextMenu
           : itemContextMenu;
     const itemChanged = kind !== 'parent'
       && (contextSelection?.kind !== kind || contextSelection.itemId !== itemId);
@@ -622,6 +650,7 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     parentContextMenu.hidden = true;
     privateKeyContextMenu.hidden = true;
     publicKeyContextMenu.hidden = true;
+    certificateContextMenu.hidden = true;
     itemContextMenu.hidden = true;
   }
 
@@ -797,6 +826,16 @@ function template(): string {
           <div id="publicKeyContextMenu" class="node-context-menu" role="menu" hidden>
             <button id="publicSaveButton" type="button" role="menuitem">Save</button>
             <button id="publicDeleteButton" type="button" role="menuitem">Delete</button>
+          </div>
+          <div id="certificateContextMenu" class="node-context-menu" role="menu" hidden>
+            <div class="node-context-menu-group" role="none">
+              <button class="node-context-submenu-trigger" type="button" role="menuitem" aria-haspopup="menu">Send to</button>
+              <div class="node-context-submenu" role="menu" aria-label="Send to">
+                <button id="certificateSendToX509GadgetsButton" type="button" role="menuitem">X509 Gadgets</button>
+              </div>
+            </div>
+            <button id="certificateSaveButton" type="button" role="menuitem">Save</button>
+            <button id="certificateDeleteButton" type="button" role="menuitem">Delete</button>
           </div>
           <div id="itemContextMenu" class="node-context-menu" role="menu" hidden>
             <button id="itemSaveButton" type="button" role="menuitem">Save</button>

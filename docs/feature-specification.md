@@ -61,7 +61,11 @@ Hosts embedding the App API may explicitly override that preference.
 Tree folder and item icons open contextual command menus without expanding or
 collapsing their nodes. The parent menu loads certificates from files or PEM
 and hexadecimal clipboard text, creates SubjectDN values, and deletes the key
-pair. Item menus provide applicable save, creation, and deletion commands.
+pair. Item menus provide applicable save, creation, and deletion commands. A
+certificate item's **Send to > X509 Gadgets** action opens the published X.509
+Gadgets browser app in a separate same-origin window and transfers a copy of
+the certificate DER directly between the windows. Certificate bytes are not
+placed in the URL, clipboard, persistent storage, or a network request.
 
 ## Network and dependency boundary
 
@@ -69,8 +73,9 @@ The application performs no network requests. The production Content Security
 Policy sets `connect-src 'none'`. Runtime code and OID data are bundled from
 installed npm packages; no CDN or repository URL is used.
 
-Only the exact published DerEditor npm package is allowed from the PkiStudio
-scope. Automated tests enforce source, lockfile, workflow, and package policy.
+Only the exact published DerEditor and X.509 Gadgets npm packages are allowed
+from the PkiStudio scope. Automated tests enforce source, lockfile, workflow,
+and package policy.
 
 ## Initial compatibility limits
 
