@@ -48,6 +48,7 @@
     "test:e2e:install": "playwright install --with-deps chromium",
     "verify:browser": "npm run build && npm run test:e2e",
     "pack:dry-run": "npm pack --dry-run",
+    "release:prepare": "node scripts/prepare-release.mjs apply",
     "verify": "npm test && npm run check && npm run build && npm run test:e2e && npm run pack:dry-run"
   },
   "repository": {

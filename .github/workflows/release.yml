@@ -1,0 +1,157 @@
+name: Release
+
+run-name: Release ${{ inputs.version || inputs.increment }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Optional exact version (X.Y.Z, without a v prefix)
+        required: false
+        type: string
+      increment:
+        description: Increment used when version is omitted (the first release is always 0.1.0)
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      confirmation:
+        description: Type RELEASE to confirm creation of the GitHub Release
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  deployments: read
+
+concurrency:
+  group: keygadgets-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm release intent and token
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          KEYGADGETS_GH_TOKEN: ${{ secrets.KEYGADGETS_GH_TOKEN }}
+        run: |
+          if [ "$CONFIRMATION" != "RELEASE" ]; then
+            echo "Release confirmation must be exactly RELEASE." >&2
+            exit 1
+          fi
+          if [ -z "$KEYGADGETS_GH_TOKEN" ]; then
+            echo "Repository secret KEYGADGETS_GH_TOKEN is required." >&2
+            exit 1
+          fi
+
+      - name: Check out the default branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.KEYGADGETS_GH_TOKEN }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Require successful GitHub Pages deployment
+        env:
+          GH_TOKEN: ${{ secrets.KEYGADGETS_GH_TOKEN }}
+        run: |
+          release_sha="$(git rev-parse HEAD)"
+          successful_deployment_id=""
+
+          for deployment_id in $(gh api --paginate \
+            "/repos/$GITHUB_REPOSITORY/deployments?sha=$release_sha&environment=github-pages&per_page=100" \
+            --jq '.[].id'); do
+            deployment_state="$(gh api \
+              "/repos/$GITHUB_REPOSITORY/deployments/$deployment_id/statuses?per_page=1" \
+              --jq '.[0].state // ""')"
+            if [ "$deployment_state" = "success" ]; then
+              successful_deployment_id="$deployment_id"
+              break
+            fi
+          done
+
+          if [ -z "$successful_deployment_id" ]; then
+            echo "Commit $release_sha does not have a successful github-pages deployment." >&2
+            exit 1
+          fi
+
+          echo "GitHub Pages deployment: $successful_deployment_id" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deployed commit: $release_sha" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Resolve release version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.KEYGADGETS_GH_TOKEN }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          INCREMENT: ${{ inputs.increment }}
+        run: |
+          latest_version="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)"
+          release_version="$(node scripts/prepare-release.mjs resolve \
+            --latest "$latest_version" \
+            --version "$REQUESTED_VERSION" \
+            --increment "$INCREMENT")"
+          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
+          echo "Release version: $release_version" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Reject an existing tag or release
+        env:
+          GH_TOKEN: ${{ secrets.KEYGADGETS_GH_TOKEN }}
+          RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
+        run: |
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_VERSION"; then
+            echo "Tag $RELEASE_VERSION already exists." >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_VERSION already exists." >&2
+            exit 1
+          fi
+
+      - name: Synchronize version metadata
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
+        run: node scripts/prepare-release.mjs apply "$RELEASE_VERSION"
+
+      - name: Verify release contents
+        run: |
+          npm ci
+          npm test
+          npm run check
+          npm run build
+          npm run pack:dry-run
+          git diff --check
+
+      - name: Require pre-merged version metadata
+        run: |
+          if ! git diff --quiet; then
+            echo "Version metadata must be committed through a release pull request before dispatch." >&2
+            git status --short >&2
+            exit 1
+          fi
+
+      - name: Create version-only GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.KEYGADGETS_GH_TOKEN }}
+          RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "$RELEASE_VERSION" --message "$RELEASE_VERSION"
+          git push origin "$RELEASE_VERSION"
+          gh release create "$RELEASE_VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$RELEASE_VERSION" \
+            --notes ""

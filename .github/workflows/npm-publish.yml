@@ -1,0 +1,196 @@
+name: Publish to npm
+
+run-name: Publish ${{ inputs.version || 'latest GitHub Release' }} to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Optional existing GitHub Release version (X.Y.Z, without a v prefix)
+        required: false
+        type: string
+      authentication:
+        description: Use trusted publishing normally; token bootstrap is only for the first publication
+        required: true
+        default: trusted
+        type: choice
+        options:
+          - trusted
+          - token-bootstrap
+      confirmation:
+        description: Type NPM_RELEASE to confirm publication to npmjs.com
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: keygadgets-npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish @pkistudio/keygadgets
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@pkistudio/keygadgets
+    steps:
+      - name: Confirm npm publication intent and GitHub token
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          KEYGADGETS_GH_TOKEN: ${{ secrets.KEYGADGETS_GH_TOKEN }}
+        run: |
+          if [ "$CONFIRMATION" != "NPM_RELEASE" ]; then
+            echo "npm publication confirmation must be exactly NPM_RELEASE." >&2
+            exit 1
+          fi
+          if [ -z "$KEYGADGETS_GH_TOKEN" ]; then
+            echo "Repository secret KEYGADGETS_GH_TOKEN is required." >&2
+            exit 1
+          fi
+
+      - name: Resolve an existing stable GitHub Release
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.KEYGADGETS_GH_TOKEN }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$REQUESTED_VERSION" ]; then
+            release_json="$(gh release view "$REQUESTED_VERSION" --repo "$GITHUB_REPOSITORY" \
+              --json tagName,isDraft,isPrerelease)"
+          else
+            release_json="$(gh release view --repo "$GITHUB_REPOSITORY" \
+              --json tagName,isDraft,isPrerelease)"
+          fi
+
+          publish_version="$(jq -r .tagName <<<"$release_json")"
+          is_draft="$(jq -r .isDraft <<<"$release_json")"
+          is_prerelease="$(jq -r .isPrerelease <<<"$release_json")"
+
+          if [[ ! "$publish_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "GitHub Release tag must use X.Y.Z without a v prefix: $publish_version" >&2
+            exit 1
+          fi
+          if [ "$is_draft" != "false" ] || [ "$is_prerelease" != "false" ]; then
+            echo "Only a published stable GitHub Release can be published to npm." >&2
+            exit 1
+          fi
+          if [ -n "$REQUESTED_VERSION" ] && [ "$REQUESTED_VERSION" != "$publish_version" ]; then
+            echo "Requested version does not match the GitHub Release tag." >&2
+            exit 1
+          fi
+
+          echo "publish_version=$publish_version" >> "$GITHUB_OUTPUT"
+          echo "npm package: @pkistudio/keygadgets@$publish_version" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check out the GitHub Release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.version.outputs.publish_version }}
+          fetch-depth: 0
+          token: ${{ secrets.KEYGADGETS_GH_TOKEN }}
+
+      - name: Set up Node.js and npm registry
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install an OIDC-capable npm CLI
+        run: npm install --global npm@11.19.0
+
+      - name: Verify package identity and version
+        env:
+          PUBLISH_VERSION: ${{ steps.version.outputs.publish_version }}
+        run: |
+          node - <<'NODE'
+          const packageJson = require('./package.json');
+          const packageLock = require('./package-lock.json');
+          const expectedVersion = process.env.PUBLISH_VERSION;
+
+          if (packageJson.name !== '@pkistudio/keygadgets') {
+            throw new Error(`unexpected package name: ${packageJson.name}`);
+          }
+          if (packageJson.version !== expectedVersion) {
+            throw new Error(`package version ${packageJson.version} does not match ${expectedVersion}`);
+          }
+          if (packageLock.version !== expectedVersion || packageLock.packages[''].version !== expectedVersion) {
+            throw new Error('package-lock version does not match the GitHub Release');
+          }
+          NODE
+
+      - name: Reject an already published npm version
+        env:
+          PUBLISH_VERSION: ${{ steps.version.outputs.publish_version }}
+        run: |
+          set +e
+          view_output="$(npm view "@pkistudio/keygadgets@$PUBLISH_VERSION" version --json 2>&1)"
+          view_status=$?
+          set -e
+
+          if [ "$view_status" -eq 0 ]; then
+            echo "@pkistudio/keygadgets@$PUBLISH_VERSION is already published." >&2
+            exit 1
+          fi
+          if ! grep -q 'E404' <<<"$view_output"; then
+            echo "$view_output" >&2
+            exit "$view_status"
+          fi
+
+      - name: Verify package contents
+        run: |
+          npm ci
+          npm test
+          npm run check
+          npm run build
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+          npm run pack:dry-run
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Package verification generated working-tree changes." >&2
+            git status --short >&2
+            exit 1
+          fi
+
+      - name: Publish with npm Trusted Publishing
+        if: ${{ inputs.authentication == 'trusted' }}
+        run: npm publish --access public
+
+      - name: Bootstrap the first publication with a temporary npm token
+        if: ${{ inputs.authentication == 'token-bootstrap' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "The npm environment secret NPM_TOKEN is required for token-bootstrap." >&2
+            exit 1
+          fi
+          npm publish --access public
+
+      - name: Verify npm publication
+        env:
+          PUBLISH_VERSION: ${{ steps.version.outputs.publish_version }}
+        run: |
+          published_version=""
+          for attempt in $(seq 1 20); do
+            set +e
+            published_version="$(npm view "@pkistudio/keygadgets@$PUBLISH_VERSION" version 2>/dev/null)"
+            view_status=$?
+            set -e
+
+            if [ "$view_status" -eq 0 ] && [ "$published_version" = "$PUBLISH_VERSION" ]; then
+              break
+            fi
+            if [ "$attempt" -eq 20 ]; then
+              echo "npm did not return version $PUBLISH_VERSION within five minutes." >&2
+              exit 1
+            fi
+
+            echo "npm registry metadata is not available yet (attempt $attempt/20); retrying in 15 seconds."
+            sleep 15
+          done
+          echo "Published: https://www.npmjs.com/package/@pkistudio/keygadgets/v/$PUBLISH_VERSION" >> "$GITHUB_STEP_SUMMARY"
