@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { CertificationRequest, Certificate } from 'pkijs';
 import {
@@ -17,7 +18,8 @@ import { readPkcs12, writePkcs12 } from '../src/pkcs12';
 import { toArrayBuffer } from '../src/internal';
 
 test('exposes stable versioned Core API', () => {
-  assert.equal(KeyGadgetsCore.version, '0.1.0');
+  const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+  assert.equal(KeyGadgetsCore.version, packageJson.version);
   assert.equal(typeof KeyGadgetsCore.generateKeyPair, 'function');
   assert.equal(typeof KeyGadgetsCore.readPkcs12, 'function');
 });

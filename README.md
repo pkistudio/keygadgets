@@ -3,7 +3,7 @@
 Key Gadgets is a local-only browser application and reusable TypeScript API for
 generating, importing, exporting, and inspecting PKI key material.
 
-Current version: 0.1.0
+Current version: 0.1.1
 
 Private keys, certificates, CSRs, SubjectDN values, and PKCS#12 files stay in
 browser memory unless the user explicitly exports them. The application does
