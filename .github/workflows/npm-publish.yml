@@ -38,24 +38,19 @@ jobs:
       name: npm
       url: https://www.npmjs.com/package/@pkistudio/keygadgets
     steps:
-      - name: Confirm npm publication intent and GitHub token
+      - name: Confirm npm publication intent
         env:
           CONFIRMATION: ${{ inputs.confirmation }}
-          KEYGADGETS_GH_TOKEN: ${{ secrets.KEYGADGETS_GH_TOKEN }}
         run: |
           if [ "$CONFIRMATION" != "NPM_RELEASE" ]; then
             echo "npm publication confirmation must be exactly NPM_RELEASE." >&2
-            exit 1
-          fi
-          if [ -z "$KEYGADGETS_GH_TOKEN" ]; then
-            echo "Repository secret KEYGADGETS_GH_TOKEN is required." >&2
             exit 1
           fi
 
       - name: Resolve an existing stable GitHub Release
         id: version
         env:
-          GH_TOKEN: ${{ secrets.KEYGADGETS_GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.KEYGADGETS_GH_TOKEN || github.token }}
           REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           if [ -n "$REQUESTED_VERSION" ]; then
@@ -91,7 +86,7 @@ jobs:
         with:
           ref: ${{ steps.version.outputs.publish_version }}
           fetch-depth: 0
-          token: ${{ secrets.KEYGADGETS_GH_TOKEN }}
+          token: ${{ secrets.KEYGADGETS_GH_TOKEN || github.token }}
 
       - name: Set up Node.js and npm registry
         uses: actions/setup-node@v6
