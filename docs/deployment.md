@@ -29,16 +29,42 @@ Source** set to **GitHub Actions**. The `github-pages` environment must allow
 ## GitHub authentication
 
 `KEYGADGETS_GH_TOKEN` may be added as a repository Actions secret when a
-dedicated GitHub token is desired. It must be able to read deployments and
-create tags and Releases in `pkistudio/keygadgets`. The Release and npm
+dedicated GitHub token is desired. A fine-grained token should be limited to
+`pkistudio/keygadgets` and have **Actions: Read and write**, **Contents: Read and
+write**, and **Deployments: Read** repository permissions. The Release and npm
 workflows prefer it for GitHub API access and authenticated checkout/tag
 operations, then fall back to the short-lived `github.token` with the explicit
 workflow permissions declared in each file.
 
+The same token may be supplied to a trusted local or automation environment as
+the `KEYGADGETS_GH_TOKEN` environment variable to dispatch these workflows. A
+repository Actions secret is not automatically available to a local shell. Do
+not print the value or store it in the repository; pass it to `gh` only for the
+process that needs it:
+
+```sh
+if [ -z "${KEYGADGETS_GH_TOKEN:-}" ]; then
+  echo "KEYGADGETS_GH_TOKEN is required" >&2
+  exit 1
+fi
+
+GH_TOKEN="${KEYGADGETS_GH_TOKEN}" gh workflow run release.yml \
+  --repo pkistudio/keygadgets --ref main \
+  -f version=0.1.4 -f increment=patch -f confirmation=RELEASE
+
+GH_TOKEN="${KEYGADGETS_GH_TOKEN}" gh workflow run npm-publish.yml \
+  --repo pkistudio/keygadgets --ref main \
+  -f version=0.1.4 -f authentication=trusted -f confirmation=NPM_RELEASE
+```
+
+Use the version prepared and merged for the current release in place of the
+example `0.1.4`. The run URL returned by `gh workflow run` can be monitored with
+`GH_TOKEN="${KEYGADGETS_GH_TOKEN}" gh run watch RUN_ID --exit-status`.
+
 A GitHub token cannot authenticate to the npm registry. npm publication uses
-Trusted Publishing through OIDC. Because `@pkistudio/keygadgets` has not been
-published yet, the first publication can instead use a temporary npm publishing
-token stored as `NPM_TOKEN` in the `npm` environment.
+Trusted Publishing through OIDC. A temporary npm publishing token stored as
+`NPM_TOKEN` in the `npm` environment is reserved for an initial bootstrap when
+Trusted Publishing has not been configured, and must be removed afterward.
 
 ## Version preparation
 
