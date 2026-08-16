@@ -3,7 +3,7 @@
 Key Gadgets is a local-only browser application and reusable TypeScript API for
 generating, importing, exporting, and inspecting PKI key material.
 
-Current version: 0.1.2
+Current version: 0.1.3
 
 Private keys, certificates, CSRs, SubjectDN values, and PKCS#12 files stay in
 browser memory unless the user explicitly exports them. The application does
@@ -89,7 +89,10 @@ const imported = await readPkcs12(pfx, 'password');
 ```
 
 PKCS#12 exports use a shrouded PKCS#8 key bag with AES-256-CBC, SHA-256-based
-integrity protection, and 100,000 iterations.
+integrity protection, and 100,000 iterations. The browser app saves every
+workspace item containing a private key into one PKCS#12 file and reloads all
+of them. For supported algorithms, a public key is recovered from the private
+key when no certificate is present.
 
 ## Browser app
 

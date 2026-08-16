@@ -260,6 +260,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .certificate-dialog { width: min(430px, calc(100% - 32px)); max-height: calc(100dvh - 32px); overflow: auto; }
 .dialog-panel, .about-panel { display: grid; gap: 12px; padding: 14px; }
 .dialog-panel h2 { margin: 0; font-size: 15px; }
+.dialog-message { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
 .dialog-field { display: grid; gap: 4px; }
 .dialog-field span { color: var(--muted); font-size: 12px; }
 .dialog-field input, .dialog-field select {

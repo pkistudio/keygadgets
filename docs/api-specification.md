@@ -52,11 +52,13 @@ emailAddress use IA5String; other values use UTF8String.
 ## PKCS#12
 
 `readPkcs12(bytes, password, options?)` reads key bags, shrouded key bags, and
-X.509 certificate bags. It matches keys and certificates by localKeyId where
-available.
+X.509 certificate bags. It matches each certificate to at most one key using a
+verified localKeyId or public-key match, and derives a public key from supported
+private keys when no certificate is present.
 
 `writePkcs12(keys, password)` writes one or more private keys and optional
-certificates. A missing private key is rejected.
+certificates. A missing private key or a certificate that does not match its
+private key is rejected.
 
 The aliases `readPkcs12Keys` and `writePkcs12Keys` are also exported.
 

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { readPkcs12 } from '../src/pkcs12';
 
 test('generates a key, creates SubjectDN, and keeps DerEditor read-only', async ({ page }) => {
   const externalRequests: string[] = [];
@@ -42,6 +43,51 @@ test('follows the system color scheme without a Theme menu', async ({ page }) =>
 
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(page.locator('.key-card')).toHaveCSS('background-color', 'rgb(32, 35, 41)');
+});
+
+test('saves and reloads every private key in one PKCS#12 file', async ({ page }) => {
+  await page.goto('/');
+  for (let index = 0; index < 2; index += 1) {
+    await page.getByRole('button', { name: 'New', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'EC P-256' }).click();
+  }
+  await expect(page.getByRole('button', { name: 'Private Key', exact: true })).toHaveCount(2);
+
+  await expect(page.locator('#exportP12Button')).toHaveText('Save');
+  await page.locator('#exportP12Button').click();
+  const passwordDialog = page.locator('#passwordDialog');
+  await expect(passwordDialog).toBeVisible();
+  await expect(passwordDialog.getByRole('heading')).toHaveText('Save PKCS#12');
+  const passwordInput = passwordDialog.getByLabel('Password');
+  await expect(passwordInput).toHaveAttribute('type', 'password');
+  await passwordInput.fill('secret');
+  const downloadPromise = page.waitForEvent('download');
+  await passwordDialog.getByRole('button', { name: 'Continue' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('keygadgets-keys.p12');
+  const downloadPath = await download.path();
+  expect(downloadPath).not.toBeNull();
+  const savedBytes = new Uint8Array(await readFile(downloadPath!));
+  const decoded = await readPkcs12(savedBytes, 'secret');
+  expect(decoded).toHaveLength(2);
+  expect(decoded.every((material) => material.privateKeyDer && material.publicKeyDer)).toBe(true);
+  await expect(page.locator('#status')).toContainText('2 private key(s)');
+
+  const chooserPromise = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles({
+    name: 'keygadgets-keys.p12',
+    mimeType: 'application/x-pkcs12',
+    buffer: Buffer.from(savedBytes)
+  });
+  await expect(passwordDialog).toBeVisible();
+  await expect(passwordDialog.getByRole('heading')).toHaveText('Open PKCS#12');
+  await expect(passwordInput).toHaveAttribute('type', 'password');
+  await passwordInput.fill('secret');
+  await passwordDialog.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByRole('button', { name: 'Private Key', exact: true })).toHaveCount(4);
+  await expect(page.locator('#status')).toContainText('2 key pair(s) imported');
 });
 
 test('creates a CSR and self-signed certificate from the selected SubjectDN', async ({ page }) => {

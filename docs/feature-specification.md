@@ -19,11 +19,13 @@ certificate, multiple SubjectDN values, and multiple CSRs.
 
 The browser application accepts PEM or DER PKCS#8 private keys, SPKI public
 keys, X.509 certificates, and `.p12`/`.pfx` PKCS#12 files. PKCS#12 import and
-export require an explicit password prompt or host-supplied password.
+export use a masked password dialog, or a host-supplied password prompt when
+the application is embedded.
 
 Individual private keys, public keys, certificates, and CSRs are exported as
-PEM. SubjectDN values are exported as DER. PKCS#12 export includes the selected
-private key and its certificate when available.
+PEM. SubjectDN values are exported as DER. PKCS#12 export writes every workspace
+item that contains a private key into one file, including each matching
+certificate when available. Items without a private key are not included.
 
 ## SubjectDN and issuance
 

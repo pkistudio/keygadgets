@@ -11,7 +11,7 @@ import {
   SafeContents,
   id_CertBag_X509Certificate
 } from 'pkijs';
-import { createId, toArrayBuffer } from './internal';
+import { bytesEqual, createId, toArrayBuffer } from './internal';
 
 export type Pkcs12KeyMaterial = {
   id: string;
@@ -73,23 +73,32 @@ export async function readPkcs12(
       }
       if (bag.bagId === OID_PKCS12_CERT_BAG && bag.bagValue instanceof CertBag) {
         const certificate = readX509Certificate(bag.bagValue);
-        if (certificate) certificates.push({ localKeyId: getLocalKeyId(bag), certificate });
+        if (certificate) certificates.push({
+          localKeyId: getLocalKeyId(bag),
+          certificate,
+          publicKeyDer: toDer(certificate.subjectPublicKeyInfo)
+        });
       }
     }
   }
 
   if (privateKeys.length === 0) throw new Error('No private key was found in the PKCS#12 file.');
-  return privateKeys.map((privateKey, index) => {
-    const certificate = findMatchingCertificate(privateKey, certificates, index);
-    return {
+  const unmatchedCertificates = [...certificates];
+  const materials: Pkcs12KeyMaterial[] = [];
+  for (const privateKey of privateKeys) {
+    const privateKeyDer = toDer(privateKey.privateKeyInfo);
+    const derivedPublicKeyDer = await derivePublicKey(privateKey.privateKeyInfo);
+    const certificate = takeMatchingCertificate(privateKey, unmatchedCertificates, derivedPublicKeyDer);
+    materials.push({
       id: options.createId?.() ?? createId(),
       label: privateKey.friendlyName || privateKey.localKeyId || undefined,
-      privateKeyDer: toDer(privateKey.privateKeyInfo),
-      publicKeyDer: certificate ? toDer(certificate.subjectPublicKeyInfo) : undefined,
-      certificateDer: certificate ? toDer(certificate) : undefined,
+      privateKeyDer,
+      publicKeyDer: certificate ? certificate.publicKeyDer : derivedPublicKeyDer,
+      certificateDer: certificate ? toDer(certificate.certificate) : undefined,
       sourceName: options.sourceName
-    };
-  });
+    });
+  }
+  return materials;
 }
 
 export async function writePkcs12(keys: Pkcs12ExportKeyMaterial[], password: string): Promise<Uint8Array> {
@@ -100,10 +109,11 @@ export async function writePkcs12(keys: Pkcs12ExportKeyMaterial[], password: str
   for (const key of keys) {
     if (!key.privateKeyDer) throw new Error(`${key.label || 'Selected key pair'} does not have a private key.`);
 
+    const privateKeyInfo = PrivateKeyInfo.fromBER(toArrayBuffer(key.privateKeyDer));
     const localKeyId = randomBytes(20);
     const bagAttributes = createBagAttributes(key.label, localKeyId);
     const shroudedKeyBag = new PKCS8ShroudedKeyBag({
-      parsedValue: PrivateKeyInfo.fromBER(toArrayBuffer(key.privateKeyDer))
+      parsedValue: privateKeyInfo
     });
     await shroudedKeyBag.makeInternalValues({
       password: passwordBuffer,
@@ -118,9 +128,14 @@ export async function writePkcs12(keys: Pkcs12ExportKeyMaterial[], password: str
       bagAttributes
     }));
     if (key.certificateDer) {
+      const certificate = Certificate.fromBER(toArrayBuffer(key.certificateDer));
+      const publicKeyDer = await derivePublicKey(privateKeyInfo);
+      if (publicKeyDer && !bytesEqual(publicKeyDer, toDer(certificate.subjectPublicKeyInfo))) {
+        throw new Error(`${key.label || 'Selected key pair'} has a certificate that does not match its private key.`);
+      }
       safeBags.push(new SafeBag({
         bagId: OID_PKCS12_CERT_BAG,
-        bagValue: new CertBag({ parsedValue: Certificate.fromBER(toArrayBuffer(key.certificateDer)) }),
+        bagValue: new CertBag({ parsedValue: certificate }),
         bagAttributes
       }));
     }
@@ -153,6 +168,7 @@ type IndexedPrivateKey = {
 type IndexedCertificate = {
   localKeyId: string | null;
   certificate: Certificate;
+  publicKeyDer: Uint8Array;
 };
 
 type ParsedSafeContent = { value: SafeContents };
@@ -181,17 +197,102 @@ function readX509Certificate(certBag: CertBag): Certificate | null {
   throw new Error('PKCS#12 certificate bag did not contain an X.509 certificate.');
 }
 
-function findMatchingCertificate(
+function takeMatchingCertificate(
   privateKey: IndexedPrivateKey,
   certificates: IndexedCertificate[],
-  fallbackIndex: number
-): Certificate | undefined {
+  publicKeyDer: Uint8Array | undefined
+): IndexedCertificate | undefined {
   if (certificates.length === 0) return undefined;
   if (privateKey.localKeyId) {
-    const match = certificates.find((certificate) => certificate.localKeyId === privateKey.localKeyId);
-    if (match) return match.certificate;
+    const matchIndex = certificates.findIndex((certificate) => {
+      return certificate.localKeyId === privateKey.localKeyId
+        && (!publicKeyDer || bytesEqual(certificate.publicKeyDer, publicKeyDer));
+    });
+    if (matchIndex !== -1) return certificates.splice(matchIndex, 1)[0];
   }
-  return certificates[Math.min(fallbackIndex, certificates.length - 1)]?.certificate;
+  if (publicKeyDer) {
+    const matchIndex = certificates.findIndex((certificate) => bytesEqual(certificate.publicKeyDer, publicKeyDer));
+    return matchIndex === -1 ? undefined : certificates.splice(matchIndex, 1)[0];
+  }
+  return certificates.shift();
+}
+
+async function derivePublicKey(privateKeyInfo: PrivateKeyInfo): Promise<Uint8Array | undefined> {
+  try {
+    const parameters = publicKeyDerivationParameters(privateKeyInfo);
+    if (!parameters) return undefined;
+    const privateKey = await crypto.subtle.importKey(
+      'pkcs8',
+      toArrayBuffer(toDer(privateKeyInfo)),
+      parameters.algorithm,
+      true,
+      parameters.privateUsages
+    );
+    const publicJwk = await crypto.subtle.exportKey('jwk', privateKey);
+    delete publicJwk.d;
+    delete publicJwk.p;
+    delete publicJwk.q;
+    delete publicJwk.dp;
+    delete publicJwk.dq;
+    delete publicJwk.qi;
+    delete publicJwk.oth;
+    publicJwk.key_ops = [...parameters.publicUsages];
+    const publicKey = await crypto.subtle.importKey(
+      'jwk',
+      publicJwk,
+      parameters.algorithm,
+      true,
+      parameters.publicUsages
+    );
+    return new Uint8Array(await crypto.subtle.exportKey('spki', publicKey));
+  } catch {
+    return undefined;
+  }
+}
+
+function publicKeyDerivationParameters(privateKeyInfo: PrivateKeyInfo): {
+  algorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams;
+  privateUsages: KeyUsage[];
+  publicUsages: KeyUsage[];
+} | undefined {
+  const oid = privateKeyInfo.privateKeyAlgorithm.algorithmId;
+  if (oid === '1.2.840.113549.1.1.1') {
+    return {
+      algorithm: { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      privateUsages: ['sign'],
+      publicUsages: ['verify']
+    };
+  }
+  if (oid === '1.2.840.10045.2.1') {
+    const curveOid = privateKeyInfo.privateKeyAlgorithm.algorithmParams;
+    const namedCurve = curveOid instanceof asn1js.ObjectIdentifier ? curveNameFromOid(curveOid.valueBlock.toString()) : undefined;
+    return namedCurve ? {
+      algorithm: { name: 'ECDSA', namedCurve },
+      privateUsages: ['sign'],
+      publicUsages: ['verify']
+    } : undefined;
+  }
+  const name = {
+    '1.3.101.112': 'Ed25519',
+    '1.3.101.113': 'Ed448',
+    '1.3.101.110': 'X25519',
+    '1.3.101.111': 'X448'
+  }[oid];
+  if (!name) return undefined;
+  const signing = name === 'Ed25519' || name === 'Ed448';
+  return {
+    algorithm: { name },
+    privateUsages: signing ? ['sign'] : ['deriveBits'],
+    publicUsages: signing ? ['verify'] : []
+  };
+}
+
+function curveNameFromOid(oid: string): string | undefined {
+  return {
+    '1.2.840.10045.3.1.7': 'P-256',
+    '1.3.132.0.34': 'P-384',
+    '1.3.132.0.35': 'P-521'
+  }[oid];
 }
 
 function getLocalKeyId(bag: SafeBag): string | null {

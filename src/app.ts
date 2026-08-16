@@ -72,6 +72,11 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
   const subjectDialog = query<HTMLDialogElement>(mount, '#subjectDialog');
   const csrDialog = query<HTMLDialogElement>(mount, '#csrDialog');
   const certificateDialog = query<HTMLDialogElement>(mount, '#certificateDialog');
+  const passwordDialog = query<HTMLDialogElement>(mount, '#passwordDialog');
+  const passwordForm = query<HTMLFormElement>(mount, '#passwordForm');
+  const passwordDialogTitle = query<HTMLElement>(mount, '#passwordDialogTitle');
+  const passwordDialogMessage = query<HTMLElement>(mount, '#passwordDialogMessage');
+  const passwordInput = query<HTMLInputElement>(mount, '#pkcs12Password');
   const aboutDialog = query<HTMLDialogElement>(mount, '#aboutDialog');
   const parentContextMenu = query<HTMLElement>(mount, '#parentContextMenu');
   const privateKeyContextMenu = query<HTMLElement>(mount, '#privateKeyContextMenu');
@@ -85,6 +90,7 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
   let contextKeyId: string | null = null;
   let contextSelection: Selection | null = null;
   let certificateTargetKeyId: string | null = null;
+  let resolvePassword: ((password: string | null) => void) | null = null;
 
   const instance: KeyGadgetsAppInstance = {
     get materials() { return materials; },
@@ -206,6 +212,15 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
   }));
   query<HTMLButtonElement>(mount, '#aboutButton').addEventListener('click', () => aboutDialog.showModal());
   query<HTMLButtonElement>(mount, '#closeAboutButton').addEventListener('click', () => aboutDialog.close());
+  passwordForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    settlePasswordDialog(passwordInput.value);
+  });
+  query<HTMLButtonElement>(mount, '#passwordCancelButton').addEventListener('click', () => settlePasswordDialog(null));
+  passwordDialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    settlePasswordDialog(null);
+  });
   query<HTMLButtonElement>(mount, '#clearLogButton').addEventListener('click', () => {
     log.replaceChildren();
     logOperation('clear', 'API log cleared.');
@@ -303,7 +318,7 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     suppliedPassword?: string
   ): Promise<readonly KeyGadgetsKeyMaterial[]> {
     if (/\.(p12|pfx)$/i.test(sourceName)) {
-      const password = suppliedPassword ?? await promptHost('PKCS#12 password', '');
+      const password = suppliedPassword ?? await requestPkcs12Password('open');
       if (password === null) return [];
       const imported: KeyGadgetsKeyMaterial[] = (await readPkcs12(bytes, password, { sourceName }))
         .map((item) => ({ ...item, subjectDns: [], csrs: [] }));
@@ -436,13 +451,16 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
   }
 
   async function exportPkcs12(): Promise<void> {
-    const material = selectedMaterialRequired();
-    if (!material.privateKeyDer) throw new Error('The selected key does not include a private key.');
-    const password = await promptHost('Password for the new PKCS#12 file', '');
+    const exportable = materials.filter((material) => material.privateKeyDer);
+    if (exportable.length === 0) throw new Error('There are no private keys to export.');
+    const password = await requestPkcs12Password('save', exportable.length);
     if (password === null) return;
-    const bytes = await writePkcs12([material], password);
-    await saveHost({ bytes, suggestedName: safeName(material.label || 'key') + '.p12', mimeType: 'application/x-pkcs12' });
-    logOperation('writePkcs12', 'PKCS#12 file created.');
+    const bytes = await writePkcs12(exportable, password);
+    const suggestedName = exportable.length === 1
+      ? `${safeName(exportable[0]?.label || 'key')}.p12`
+      : 'keygadgets-keys.p12';
+    await saveHost({ bytes, suggestedName, mimeType: 'application/x-pkcs12' });
+    logOperation('writePkcs12', `PKCS#12 file created with ${exportable.length} private key(s).`);
   }
 
   async function deleteSelection(): Promise<void> {
@@ -571,7 +589,7 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     const material = enabled && selection ? findMaterial(selection.keyId) : undefined;
     const hasKeyPair = Boolean(material?.privateKeyDer && material.publicKeyDer);
     const canIssue = hasKeyPair && Boolean(material?.subjectDns?.length);
-    query<HTMLButtonElement>(mount, '#exportP12Button').disabled = !material?.privateKeyDer;
+    query<HTMLButtonElement>(mount, '#exportP12Button').disabled = !materials.some((item) => item.privateKeyDer);
     for (const id of ['createCsrButton', 'createCertificateButton']) {
       query<HTMLButtonElement>(mount, `#${id}`).disabled = !canIssue;
     }
@@ -759,8 +777,31 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
     return options.host?.confirm ? options.host.confirm(message) : window.confirm(message);
   }
 
-  async function promptHost(message: string, defaultValue = ''): Promise<string | null> {
-    return options.host?.prompt ? options.host.prompt(message, defaultValue) : window.prompt(message, defaultValue);
+  async function requestPkcs12Password(purpose: 'open' | 'save', keyCount?: number): Promise<string | null> {
+    const message = purpose === 'open'
+      ? 'Password for the PKCS#12 file'
+      : `Password for the new PKCS#12 file containing ${keyCount ?? 0} private key(s)`;
+    if (options.host?.prompt) return options.host.prompt(message, '');
+    if (resolvePassword) throw new Error('A PKCS#12 password dialog is already open.');
+
+    passwordDialogTitle.textContent = purpose === 'open' ? 'Open PKCS#12' : 'Save PKCS#12';
+    passwordDialogMessage.textContent = purpose === 'open'
+      ? 'Enter the password used to protect this PKCS#12 file.'
+      : `Enter a password to protect ${keyCount ?? 0} private key(s) in the new PKCS#12 file.`;
+    passwordInput.value = '';
+    passwordInput.autocomplete = purpose === 'open' ? 'current-password' : 'new-password';
+    const result = new Promise<string | null>((resolve) => { resolvePassword = resolve; });
+    passwordDialog.showModal();
+    passwordInput.focus();
+    return result;
+  }
+
+  function settlePasswordDialog(password: string | null): void {
+    const resolve = resolvePassword;
+    resolvePassword = null;
+    passwordInput.value = '';
+    if (passwordDialog.open) passwordDialog.close();
+    resolve?.(password);
   }
 
   async function saveHost(file: { bytes: Uint8Array; suggestedName: string; mimeType: string }): Promise<void> {
@@ -775,6 +816,7 @@ export function initKeyGadgets(options: InitKeyGadgetsOptions = {}): KeyGadgetsA
   }
 
   function close(): void {
+    settlePasswordDialog(null);
     materials = [];
     selection = null;
     viewer.close();
@@ -801,7 +843,7 @@ function template(): string {
               <select id="algorithmSelect" class="visually-hidden" aria-label="Key algorithm"><option>Detecting algorithms…</option></select>
             </div>
             <button id="openButton" type="button">Open</button>
-            <button id="exportP12Button" type="button" disabled>Save</button>
+            <button id="exportP12Button" type="button" title="Save all private keys as one PKCS#12 file" disabled>Save</button>
             <input id="fileInput" class="visually-hidden" type="file" accept=".der,.pem,.key,.cer,.crt,.p12,.pfx" />
             <input id="certificateInput" class="visually-hidden" type="file" accept=".cer,.crt,.der,.pem,application/pkix-cert,application/x-x509-ca-cert" />
           </nav>
@@ -882,6 +924,15 @@ function template(): string {
           <fieldset class="checkbox-list"><legend>Key usage</legend>${CERTIFICATE_KEY_USAGES.map((usage) => `<label class="checkbox-list-item"><input type="checkbox" name="keyUsage" value="${usage.id}"${usage.defaultChecked ? ' checked' : ''} /><span>${usage.label}</span></label>`).join('')}</fieldset>
           <div class="dialog-actions"><button type="button" data-close-dialog>Cancel</button><button id="createCertificateButton" type="button" disabled>Create</button></div>
         </section>
+      </dialog>
+
+      <dialog id="passwordDialog" class="app-dialog">
+        <form id="passwordForm" class="dialog-panel">
+          <h2 id="passwordDialogTitle">PKCS#12 password</h2>
+          <p id="passwordDialogMessage" class="dialog-message"></p>
+          <label class="dialog-field"><span>Password</span><input id="pkcs12Password" type="password" /></label>
+          <div class="dialog-actions"><button id="passwordCancelButton" type="button">Cancel</button><button id="passwordSubmitButton" type="submit">Continue</button></div>
+        </form>
       </dialog>
 
       <dialog id="aboutDialog" class="app-dialog about-dialog">
