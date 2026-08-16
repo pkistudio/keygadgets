@@ -114,9 +114,11 @@ test('creates verifiable RSA PKCS#10 and certificate signatures', async () => {
   assert.equal(await certificate.verify(certificate), true);
 });
 
-test('round-trips a password-protected PKCS#12 key and certificate', async () => {
-  const key = await generateKeyPair('ecdsa-p-256', { label: 'PKCS12 test key' });
+test('round-trips multiple password-protected PKCS#12 key pairs', async () => {
+  const key = await generateKeyPair('ecdsa-p-256', { label: 'PKCS12 certified key' });
+  const keyWithoutCertificate = await generateKeyPair('ecdsa-p-256', { label: 'PKCS12 bare key' });
   assert.ok(key.privateKeyDer && key.publicKeyDer);
+  assert.ok(keyWithoutCertificate.privateKeyDer && keyWithoutCertificate.publicKeyDer);
   const subjectDn = 'CN=pkcs12.test, O=PKI Studio, C=US';
   const certificate = await createSelfSignedCertificate({
     privateKeyDer: key.privateKeyDer,
@@ -127,12 +129,27 @@ test('round-trips a password-protected PKCS#12 key and certificate', async () =>
     validityDays: 30,
     keyUsages: ['digitalSignature']
   });
-  const encoded = await writePkcs12([{ label: key.label, privateKeyDer: key.privateKeyDer, certificateDer: certificate.bytes }], 'secret');
-  const [decoded] = await readPkcs12(encoded, 'secret');
-  assert.ok(decoded);
-  assert.equal(decoded.label, 'PKCS12 test key');
-  assert.deepEqual(decoded.privateKeyDer, key.privateKeyDer);
-  assert.deepEqual(decoded.publicKeyDer, key.publicKeyDer);
-  assert.deepEqual(decoded.certificateDer, certificate.bytes);
+  const encoded = await writePkcs12([
+    { label: key.label, privateKeyDer: key.privateKeyDer, certificateDer: certificate.bytes },
+    { label: keyWithoutCertificate.label, privateKeyDer: keyWithoutCertificate.privateKeyDer }
+  ], 'secret');
+  const decoded = await readPkcs12(encoded, 'secret');
+  assert.equal(decoded.length, 2);
+  assert.equal(decoded[0]?.label, 'PKCS12 certified key');
+  assert.deepEqual(decoded[0]?.privateKeyDer, key.privateKeyDer);
+  assert.deepEqual(decoded[0]?.publicKeyDer, key.publicKeyDer);
+  assert.deepEqual(decoded[0]?.certificateDer, certificate.bytes);
+  assert.equal(decoded[1]?.label, 'PKCS12 bare key');
+  assert.deepEqual(decoded[1]?.privateKeyDer, keyWithoutCertificate.privateKeyDer);
+  assert.deepEqual(decoded[1]?.publicKeyDer, keyWithoutCertificate.publicKeyDer);
+  assert.equal(decoded[1]?.certificateDer, undefined);
+  await assert.rejects(
+    () => writePkcs12([{
+      label: keyWithoutCertificate.label,
+      privateKeyDer: keyWithoutCertificate.privateKeyDer,
+      certificateDer: certificate.bytes
+    }], 'secret'),
+    /certificate.*does not match/i
+  );
   await assert.rejects(() => readPkcs12(encoded, 'wrong'), /integrity|password|signature/i);
 });

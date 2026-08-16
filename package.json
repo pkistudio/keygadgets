@@ -1,6 +1,6 @@
 {
   "name": "@pkistudio/keygadgets",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Local-only PKI key generation, import, export, and inspection tools.",
   "type": "module",
   "main": "./dist/core.js",
